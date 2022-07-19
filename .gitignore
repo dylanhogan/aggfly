@@ -1,3 +1,6 @@
+z_old/
+logs/
+dask-worker-space/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
