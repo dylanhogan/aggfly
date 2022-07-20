@@ -8,9 +8,9 @@ import dask
 import dask.array
 from functools import lru_cache
 
-from aggregate.gridfuncs import *
+from .grid_utils import *
 
-class ClimateGrid:
+class Grid:
     
     def __init__(self, longitude, latitude):
         self.longitude = longitude

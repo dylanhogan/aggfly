@@ -5,10 +5,10 @@ import zarr
 import dask
 import dask.array
 
-from aggregate.ClimateGrid import ClimateGrid
-from aggregate.gridfuncs import *
+from .grid import Grid
+from .grid_utils import *
 
-class ClimateDataset:
+class Dataset:
     
     def __init__(self, da, name=None):
         self.da = da

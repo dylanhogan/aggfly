@@ -1,0 +1,1 @@
+from .grid_weights import GridWeights, from_objects

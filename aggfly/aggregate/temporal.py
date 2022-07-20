@@ -1,5 +1,5 @@
-import zarr
 from functools import lru_cache, partial
+
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -12,7 +12,7 @@ import rioxarray
 from rasterio.enums import Resampling
 import numba
 from numba import prange
-from dataclasses import dataclass
+import zarr
 
 class YearlyWeatherAggregator:
     

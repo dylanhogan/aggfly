@@ -1,3 +1,5 @@
+# Temporarily deprecated.
+# 
 import os
 import warnings
 from functools import lru_cache
@@ -13,12 +15,12 @@ import rasterio
 from rasterio.enums import Resampling
 import rioxarray
 
-from aggregate.ClimateDataset import ClimateDataset
-from aggregate.GridWeights import GridWeights
-from aggregate.SpatialAggregator import SpatialAggregator
-from aggregate.TemporalAggregator import TemporalAggregator
+# from aggregate.ClimateDataset import ClimateDataset
+# from aggregate.GridWeights import GridWeights
+# from aggregate.SpatialAggregator import SpatialAggregator
+# from aggregate.TemporalAggregator import TemporalAggregator
 
-from aggregate.utils import *
+# from aggregate.utils import *
 
 class ClimateAggregator:
     

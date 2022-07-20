@@ -13,8 +13,8 @@ import rasterio
 from rasterio.enums import Resampling
 import rioxarray
 
-from aggregate import CropWeights 
-from aggregate.utils import *
+from .crop_weights import CropWeights 
+from ..dataset import *
 
 class GridWeights:
     

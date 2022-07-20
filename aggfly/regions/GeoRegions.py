@@ -8,7 +8,7 @@ import dask
 import dask.array
 from functools import lru_cache
 
-from aggregate.shpfuncs import *
+from .shp_utils import *
 
 class GeoRegions:
     

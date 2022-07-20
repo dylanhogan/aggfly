@@ -6,8 +6,8 @@ import os
 import dask
 import dask.array
 from functools import lru_cache
-from aggregate.utils import autochunk
 
+from ..utils import autochunk
 
 def grid_centroids(lon_bound, lat_bound, res):
     longitude, latitude = np.meshgrid(

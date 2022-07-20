@@ -1,8 +1,9 @@
 import os
 import warnings
 from functools import lru_cache
+from hashlib import sha256
+import json
 
-import zarr
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -11,12 +12,10 @@ import pygeos
 import dask
 import dask.array
 import rasterio
-import rioxarray
 from rasterio.enums import Resampling
-from hashlib import sha256
-import json
+import rioxarray
 
-from aggregate.gridfuncs import reformat_grid
+from ..dataset import reformat_grid
 
 class CropWeights:
     
