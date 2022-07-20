@@ -5,4 +5,6 @@ Will add docs and instructions in the next few weeks as I have time. For questio
 
 The `environment.yml` file provides the packages you need. You can refer to the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file) if you need help using it.
 
+Once you have all the dependencies, you can install this package by running `pip install -e .` from the root directory of the repository.
+
 Of course, please feel free to suggest changes/improvements/extensions :)
