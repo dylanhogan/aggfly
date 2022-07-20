@@ -7,4 +7,4 @@ The `requirements.txt` file provides the basic packages you'll need to run the c
 
 Once you have all the dependencies, you can install this package by running `pip install -e .` from the root directory of the repository.
 
-Of course, please feel free to suggest changes/improvements/extensions :)
+Of course, please feel free to suggest changes/improvements/extensions in [Issues](https://github.com/dylanhogan/aggfly/issues) :)
