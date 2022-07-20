@@ -13,7 +13,7 @@ import rasterio
 from rasterio.enums import Resampling
 import rioxarray
 
-from .crop_weights import CropWeights 
+from . import crop_weights
 from ..dataset import *
 
 class GridWeights:
@@ -206,7 +206,7 @@ class GridWeights:
 def from_objects(clim, georegions, crop='corn'):
     
     if crop is not None:
-        raster_weights = CropWeights.from_name(
+        raster_weights = crop_weights.from_name(
             name='cropland', crop=crop, grid=clim.grid)
     else:
         raster_weights = None

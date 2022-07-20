@@ -18,7 +18,7 @@ class Dataset:
         self.latitude = self.da.latitude
         assert np.all([x in list(self.coords) for x in 
             ['latitude', 'longitude']])
-        self.grid = ClimateGrid(self.longitude,
+        self.grid = Grid(self.longitude,
                                 self.latitude)       
             
     def rechunk(self, chunks='auto'):
@@ -116,7 +116,7 @@ def from_path(path, var, engine, preprocess=None, name=None, chunks='auto', **kw
         
         if preprocess is not None:
             array = preprocess(array)
-    return ClimateDataset(array, name)
+    return Dataset(array, name)
     
 def from_name(name, var, chunks='auto', **kwargs):
     path, engine, preprocess = get_path(name)
