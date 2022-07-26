@@ -1,3 +1,4 @@
+*.nc
 z_old/
 logs/
 dask-worker-space/

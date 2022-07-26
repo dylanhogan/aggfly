@@ -14,129 +14,186 @@ import numba
 from numba import prange
 import zarr
 
-class YearlyWeatherAggregator:
+from .aggregate_utils import *
+
+class TemporalAggregator:
     
-    def __init__(self, calc='sum', poly=1):
+    def __init__(self, calc, agg_from, agg_to, poly=1, ddargs=[20,30,0]):
         self.calc = calc
-        self.poly = poly
-        self.func = self.assign_func()
-    
-    def assign_func(self):
-        if self.calc == 'avg':
-            f = self._avg
-        elif self.calc == 'sum':
-            f = self._sum
-        return f
-    
-    def execute(self, arr, **kwargs):
-        # print(f"Collapsing days to {self.calc}...")
-        if isinstance(arr, dask.array.Array):
-            return self.func(arr.values, self.poly, **kwargs)
-        elif isinstance(arr, xr.core.dataarray.DataArray):
-            return self.func(arr.values, self.poly, **kwargs)
-        else:
-            return self.func(arr, self.poly, **kwargs)
-    
-    @staticmethod
-    @numba.njit(fastmath=True, parallel=True)
-    def _avg(frame, poly):
-        res=np.zeros(frame.shape[0:3], dtype=np.float64)
-        for y in prange(frame.shape[0]):
-            for x in prange(frame.shape[1]):
-                for a in prange(frame.shape[2]):
-                    for d in prange(frame.shape[3]):
-                            res[y,x,a]+=frame[y,x,a,d]
-        out = res/(frame.shape[3])
-        return np.power(out, poly)
-
-    @staticmethod
-    @numba.njit(fastmath=True, parallel=True)
-    def _sum(frame, poly):
-        res=np.zeros(frame.shape[0:3], dtype=np.float64)
-        for y in prange(frame.shape[0]):
-            for x in prange(frame.shape[1]):
-                for a in prange(frame.shape[2]):
-                    for d in prange(frame.shape[3]):
-                            res[y,x,a]+=frame[y,x,a,d]
-        return np.power(res, poly)
-
-
-class DailyWeatherAggregator:
-    
-    def __init__(self, calc='avg', poly=1, ddargs=[20,30,0]):
-        self.calc = calc
+        self.agg_from = agg_from
+        self.agg_to = agg_to
+        self.temp = self.get_temp_array()
         self.poly = poly
         self.ddargs = np.array(ddargs)
         self.func = self.assign_func()
     
     def assign_func(self):
         if self.calc == 'avg':
-            f = self._avg
-            self.args = (self.poly,)
+            f = _avg
+            self.args = (self.temp, self.poly,)
+        if self.calc == 'sum':
+            f = _sum
+            self.args = (self.temp, self.poly,)
         elif self.calc == 'dd':
-            f = self._dd
-            self.args = (self.poly, self.ddargs)
+            f = _dd
+            self.args = (self.temp, self.poly, self.ddargs)
+        elif self.calc == 'time':
+            f = _time
+            self.args = (self.temp, self.poly, self.ddargs)
         return f
 
+    def get_temp_array(self):
+        from_ndims = get_time_dim(self.agg_from) + 1
+        to_ndims = get_time_dim(self.agg_to) + 1
+        assert from_ndims > to_ndims
+        return np.zeros(tuple([1 for x in range(to_ndims)]))
+    
     def execute(self, arr, **kwargs):
-        # print(f"Collapsing hours to {self.calc}...")
-        if isinstance(arr, dask.array.Array):
-            return self.func(arr.values, *self.args, **kwargs)
-        elif isinstance(arr, xr.core.dataarray.DataArray):
-            return self.func(arr.values, *self.args, **kwargs)
-        else:
-            return self.func(arr, *self.args, **kwargs)
+        return self.func(arr, *self.args, **kwargs)
     
-    @staticmethod
-    @numba.njit(fastmath=True, parallel=True)
-    def _avg(frame, poly):
-        res=np.zeros(frame.shape[0:4], dtype=np.float64)
-        for y in prange(frame.shape[0]):
-            for x in prange(frame.shape[1]):
-                for a in prange(frame.shape[2]):
-                    for d in prange(frame.shape[3]):
-                        for h in prange(frame.shape[4]):
-                            res[y,x,a,d]+=frame[y,x,a,d,h]
-        out = res/frame.shape[4]
-        return np.power(out, poly)
-    
-    @staticmethod
-    @numba.njit(fastmath=True, parallel=True)
-    def _dd(frame, poly, ddargs):
-        res=np.zeros(frame.shape[0:4], dtype=np.float64)
-        for y in prange(frame.shape[0]):
-            for x in prange(frame.shape[1]):
-                for a in prange(frame.shape[2]):
-                    for d in prange(frame.shape[3]):
-                        for h in prange(frame.shape[4]):
-                            f = frame[y,x,a,d,h]
-                            if f > ddargs[0] and f < ddargs[1]:
-                                res[y,x,a,d]+=np.absolute(f-ddargs[ddargs[2]])/24
-        return np.power(res, poly)
-
-
-class TemporalAggregator:
-    
-    def __init__(self, 
-                 daily = DailyWeatherAggregator(),
-                 yearly = YearlyWeatherAggregator()):
-        self.daily = daily
-        self.yearly = yearly
-    
-    def execute(self, arr):
-        # print("Processing temporal aggregation!")
-        if self.daily is not None:
-            res = self.yearly.execute(
-                self.daily.execute(arr))
-        else:
-            res = self.yearly.execute(arr)
+    def map_execute(self, clim, **kwargs):
+        time_list = ['year', 'month', 'day', 'hour']
+        ind_to = time_list.index(self.agg_to)
+        ind_from = time_list.index(self.agg_from)
+        drop_dims = time_list[ind_to+1:ind_from+1]
+        drop_axis = tuple([get_time_dim(x) for x in drop_dims])
+        clim.update(clim.da.data.map_blocks(
+                self.execute,
+                dtype=float,
+                drop_axis=drop_axis),
+            drop_dims=drop_dims)
+        return clim
             
-        if isinstance(arr, dask.array.Array):
-            return dask.array.from_array(res)
-        elif isinstance(arr, xr.core.dataarray.DataArray):
-            return xr.DataArray(res)
-        else:
-            return res
+               
+@numba.njit(fastmath=True, parallel=True)
+def _avg(frame, temp, poly):
+    
+    frame_shp = frame.shape
+    res_shp = nb_contractor(frame, temp) 
+    res_empty = np.zeros_like(np.empty(res_shp))
+    res = nb_expander(res_empty)
+    frame = nb_expander(frame)
+    res_ndim = temp.ndim
+    
+    w = 0
+    for y in prange(frame.shape[0]):
+        for x in prange(frame.shape[1]):
+            for a in prange(frame.shape[2]):
+                for m in prange(frame.shape[3]):
+                    for d in prange(frame.shape[4]):
+                        for h in prange(frame.shape[5]):
+                            i=(y,x,a,m,d,h)
+                            # print(i)
+                            w += 1
+                            if res_ndim == 2:
+                                ind = (i[0],i[1],0,0,0,0)
+                            elif res_ndim == 3:
+                                ind = (i[0],i[1],i[2],0,0,0) 
+                            if res_ndim == 4:
+                                ind = (i[0],i[1],i[2],i[3],0,0) 
+                            elif res_ndim == 5:
+                                ind = (i[0],i[1],i[2],i[3],i[4],0)
+                            res[ind] += frame[i]
+    for s in res.shape:
+        w = w / s
+    return np.power(res / w, poly).reshape(res_shp)
+               
+@numba.njit(fastmath=True, parallel=True)
+def _sum(frame, temp, poly):
+        
+    frame_shp = frame.shape
+    res_shp = nb_contractor(frame, temp) 
+    res_empty = np.zeros_like(np.empty(res_shp))
+    res = nb_expander(res_empty)
+    frame = nb_expander(frame)
+    res_ndim = temp.ndim
+    
+    for y in prange(frame.shape[0]):
+        for x in prange(frame.shape[1]):
+            for a in prange(frame.shape[2]):
+                for m in prange(frame.shape[3]):
+                    for d in prange(frame.shape[4]):
+                        for h in prange(frame.shape[5]):
+                            i=(y,x,a,m,d,h)
+                            if res_ndim == 2:
+                                ind = (i[0],i[1],0,0,0,0)
+                            elif res_ndim == 3:
+                                ind = (i[0],i[1],i[2],0,0,0) 
+                            if res_ndim == 4:
+                                ind = (i[0],i[1],i[2],i[3],0,0) 
+                            elif res_ndim == 5:
+                                ind = (i[0],i[1],i[2],i[3],i[4],0)
+                            res[ind] += frame[i]
+    return np.power(res, poly).reshape(res_shp)
+               
+@numba.njit(fastmath=True, parallel=True)
+def _dd(frame, temp, poly, ddargs):
+    
+    frame_shp = frame.shape
+    res_shp = nb_contractor(frame, temp) 
+    res_empty = np.zeros_like(np.empty(res_shp))
+    res = nb_expander(res_empty)
+    frame = nb_expander(frame)
+    res_ndim = temp.ndim
+    
+    w=0
+    for y in prange(frame.shape[0]):
+        for x in prange(frame.shape[1]):
+            for a in prange(frame.shape[2]):
+                for m in prange(frame.shape[3]):
+                    for d in prange(frame.shape[4]):
+                        for h in prange(frame.shape[5]):
+                            i=(y,x,a,m,d,h)
+                            w += 1
+                            if res_ndim == 2:
+                                ind = (i[0],i[1],0,0,0,0)
+                            elif res_ndim == 3:
+                                ind = (i[0],i[1],i[2],0,0,0) 
+                            if res_ndim == 4:
+                                ind = (i[0],i[1],i[2],i[3],0,0) 
+                            elif res_ndim == 5:
+                                ind = (i[0],i[1],i[2],i[3],i[4],0)
+                            f = frame[i]
+                            if f > ddargs[0] and f < ddargs[1]:
+                                res[ind]+=np.absolute(f-ddargs[ddargs[2]])
+    for s in res.shape:
+        w = w / s
+    out = res / w
+    return np.power(out, poly).reshape(res_shp)
+               
+@numba.njit(fastmath=True, parallel=True)
+def _time(frame, res, poly, ddargs):
+    
+    frame_shp = frame.shape
+    res_shp = nb_contractor(frame, temp) 
+    res_empty = np.zeros_like(np.empty(res_shp))
+    res = nb_expander(res_empty)
+    frame = nb_expander(frame)
+    res_ndim = temp.ndim
+    
+    w=0
+    for y in prange(frame.shape[0]):
+        for x in prange(frame.shape[1]):
+            for a in prange(frame.shape[2]):
+                for m in prange(frame.shape[3]):
+                    for d in prange(frame.shape[4]):
+                        for h in prange(frame.shape[5]):
+                            i=(y,x,a,m,d,h)
+                            w += 1
+                            if res_ndim == 2:
+                                ind = (i[0],i[1],0,0,0,0)
+                            elif res_ndim == 3:
+                                ind = (i[0],i[1],i[2],0,0,0) 
+                            if res_ndim == 4:
+                                ind = (i[0],i[1],i[2],i[3],0,0) 
+                            elif res_ndim == 5:
+                                ind = (i[0],i[1],i[2],i[3],i[4],0)
+                            f = frame[i]
+                            if f > ddargs[0] and f < ddargs[1]:
+                                res[ind] += 1
+    for s in res.shape:
+        w = w / s
+    return np.power(res / w).reshape(res_shp)
         
 def from_name(name='era5l',
               calc={'daily':('dd', 1, [30,999,0]),

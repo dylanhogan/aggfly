@@ -59,19 +59,23 @@ def reformat_grid(longitude, latitude, datatype='array', chunks=30):
 
 def preprocess_era5l(array):
     with dask.config.set(**{'array.slicing.split_large_chunks': False}):        
-        array = array.sortby(array.time)
+        # array = array.sortby(array.time)
         array.coords['longitude'] = (array.coords['longitude'] + 180) % 360 - 180
         array = array.sortby(array.longitude)
-        array['year'] = array.time.dt.year
-        array['day'] = array.time.dt.dayofyear
-        array['hour'] = array.time.dt.hour
-        array = array.set_index(time=("year", "day", "hour")).unstack('time')
+        # array['year'] = array.time.dt.year
+        # array['month'] = array.time.dt.month
+        # array['day'] = array.time.dt.day
+        # array['hour'] = array.time.dt.hour
+        # array = array.set_index(time=("year", "month", "day", "hour")).unstack('time')
         # array['t2m'] = array.t2m - 273.15
     return array
 
 def timefix_era5l(array):
     with dask.config.set(**{'array.slicing.split_large_chunks': False}):   
         array['year'] = array.time.dt.year
-        array['day'] = array.time.dt.dayofyear
+        array['month'] = array.time.dt.month
+        array['day'] = array.time.dt.day
         array['hour'] = array.time.dt.hour
-        array = array.set_index(time=("year", "day", "hour")).unstack('time')
+        array = array.set_index(time=("year", "month", "day", "hour")).unstack('time')
+        array = array - 273.15
+    return array

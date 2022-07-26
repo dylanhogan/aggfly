@@ -7,7 +7,7 @@ from functools import lru_cache
 
 @lru_cache(maxsize=None)
 def open_usa_shp(region_list=None):
-    usa = gpd.read_file("../dataGIS/usa/usa_simple_noHI.shp")
+    usa = gpd.read_file("/home3/dth2133/repositories/aggfly/data/shapefiles/usa_simple_noHI.shp")
     usa['state'] = usa.HASC_1.str.slice(start=3)
     usa = usa.loc[usa.state!='AK']
     if region_list:
