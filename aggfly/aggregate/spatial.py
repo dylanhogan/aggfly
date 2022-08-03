@@ -15,12 +15,13 @@ from numba import prange
 import zarr
 
 from .aggregate_utils import *
+from ..dataset.dataset import Dataset
 
 class SpatialAggregator:
     
-    def __init__(self, calc, agg_from, poly=1):
+    def __init__(self, calc, poly=1):
         self.calc = calc
-        self.agg_from = agg_from
+        # self.agg_from = agg_from
         self.poly = poly
         self.func = self.assign_func()
     
@@ -32,20 +33,29 @@ class SpatialAggregator:
     
     def execute(self, arr, weight, **kwargs):
         return self.func(arr, weight, *self.args, **kwargs)
+    
+    def map_execute(self, clim, weights, update=True, **kwargs):
 
-    def map_execute(self, clim, weights, **kwargs):
-        clim.update(
-            clim.da.data.map_blocks(
+        if type(clim) == Dataset:
+            da = clim.da.data
+        else:
+            da = clim
+            update = False
+            
+        out = da.map_blocks(
                 self.execute,
                 weights.data,
                 dtype=float,
                 drop_axis=[0,1],
                 new_axis=0,
-                chunks=(weights.data.shape[0:1]+clim.da.data.shape[2:])),
-            drop_dims=['latitude', 'longitude'],
-            new_dims={'region': weights.region.values})
-        return clim
-    
+                chunks=(weights.data.shape[0:1]+da.shape[2:]))
+        if update:
+            return clim.update(
+                out,
+                drop_dims=['latitude', 'longitude'],
+                new_dims={'region': weights.region.values})
+        else:
+            return out
     @staticmethod
     @numba.njit(fastmath=True, parallel=True)
     def _avg(frame, weight, poly):
