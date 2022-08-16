@@ -11,7 +11,7 @@ from .grid_utils import *
 class Dataset:
     
     def __init__(self, da, name=None):
-        self.da = da
+        self.update(da)
         self.name = name
         self.coords = self.da.coords
         self.longitude = self.da.longitude
@@ -119,6 +119,8 @@ def from_path(path, var, engine, preprocess=None, name=None, chunks='auto', **kw
     return Dataset(array, name)
     
 def from_name(name, var, chunks='auto', **kwargs):
+    # if name == 'prism':
+    #         
     path, engine, preprocess = get_path(name)
     clim = from_path(path, var, engine, preprocess, name, chunks, **kwargs)
     return clim
