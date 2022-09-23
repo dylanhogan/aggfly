@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
+import numba
 import zarr
 import dask
 import dask.array
+from dataclasses import dataclass
 
 from .grid import Grid
 from .grid_utils import *
@@ -11,7 +13,7 @@ from .grid_utils import *
 class Dataset:
     
     def __init__(self, da, name=None):
-        self.update(da)
+        self.update(da, init=True)
         self.name = name
         self.coords = self.da.coords
         self.longitude = self.da.longitude
@@ -20,6 +22,7 @@ class Dataset:
             ['latitude', 'longitude']])
         self.grid = Grid(self.longitude,
                                 self.latitude)       
+        self.history = []
             
     def rechunk(self, chunks='auto'):
         # Rechunk data
@@ -34,7 +37,10 @@ class Dataset:
         self.longitude = self.da.longitude
         self.latitude = self.da.latitude
         
-    def update(self, array, drop_dims=None, new_dims=None, pos=0, dask_array=True, chunks=None):
+    def update(self, array, drop_dims=None, new_dims=None, pos=0, dask_array=True, chunks=None, init=False):
+        
+        if not init:
+            old_coords = self.da.coords
         
         if type(array) == xr.core.dataarray.DataArray:
             # Coerce data into dask array if necessary
@@ -81,7 +87,7 @@ class Dataset:
                         ndims = ndims + tuple(new_dims.keys())
                     ndims = ndims + (d,)
                     i += 1
-            
+                
                 self.da = xr.DataArray(
                     data=array,
                     dims=ndims,
@@ -89,6 +95,21 @@ class Dataset:
                 
             if chunks is not None:
                 self.rechunk(chunks)
+        
+        if not init:
+            # Update history: Spatial collapse
+            spatial_old = 'longitude' in old_coords and 'latitude' in old_coords
+            spatial_new = 'longitude' in self.da.coords and 'latitude' in self.da.coords
+            if spatial_old and not spatial_new:
+                self.history.append('spatial')
+
+            # Update history: Temporal collapse
+            temp_dims = [x for x in old_coords if x in ['year','month','day','hour']]
+            new_temp_dims = [x for x in self.da.coords if x in ['year','month','day','hour']]
+            temp_dims_changed = not np.array_equiv(temp_dims, new_temp_dims)
+            if temp_dims_changed:
+                self.history.append('temporal')
+            
     
     def sel(self, **kwargs):
         da = self.da
@@ -97,8 +118,29 @@ class Dataset:
             da = da.sel(d).expand_dims(k).transpose(*self.da.dims)
         self.update(da)
             
-                
-                
+    def power(self, exp):
+        arr = self.da.data.map_blocks(_power, exp) 
+        self.update(arr)
+        self.history.append(f'power{exp}')
+        
+    def interact(self, inter):
+        
+        if type(inter) == Dataset:
+            inter = inter.da.data
+        
+        assert self.da.data.shape == inter.shape
+        arr = self.da.data.map_blocks(_interact, inter) 
+        self.update(arr)
+        self.history.append('interacted')
+            
+@numba.njit(fastmath=True, parallel=True)               
+def _power(array, exp):
+    return np.power(array, exp)
+
+@numba.njit(fastmath=True, parallel=True)               
+def _interact(array, inter):
+    return np.multiply(array, inter)
+
 def from_path(path, var, engine, preprocess=None, name=None, chunks='auto', **kwargs):
     if "*" in path:
         # array = xr.open_mfdataset(path, engine=engine, chunks=chunks,

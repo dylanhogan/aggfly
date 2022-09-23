@@ -1,4 +1,5 @@
 from functools import lru_cache, partial
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -60,25 +61,51 @@ class TemporalAggregator:
     def execute(self, arr, **kwargs):
         return self.func(arr, *self.args, **kwargs)
     
-    def map_execute(self, clim, update=True, **kwargs):
+    def map_execute(self, clim, update=False, **kwargs):
+        
+        # Update the object or return a copy.
+        if update == False:
+            clim = deepcopy(clim)
+            
+        # Collects information that dask needs to run efficiently
         time_list = ['year', 'month', 'day', 'hour']
         ind_to = time_list.index(self.agg_to)
         ind_from = time_list.index(self.agg_from)
         drop_dims = time_list[ind_to+1:ind_from+1]
         drop_axis = tuple([get_time_dim(x) for x in drop_dims])
+        
+        # This enables you to run directly on dask array rather
+        # than my Dataset object
         if type(clim) == Dataset:
             da = clim.da.data
+            # Have the data been collapsed spatially?
+            collapsed = 'spatial' in clim.history
         else:
             da = clim
-            update = False
+            collapsed = False
+        
+        # If collapsed, need to add a fake 1-dimension for the loops
+        # in the numba functions
+        if collapsed:
+            da = da[None,...]
+        
+        # Let dask do its thing
         out = da.map_blocks(
                 self.execute,
                 dtype=float,
                 drop_axis=drop_axis)
-        if update:
-            return clim.update(out, drop_dims=drop_dims)
+        
+        # Get rid of that pesky fake dimension.
+        if collapsed:
+            out = out[0,...]
+        
+        # Update object and return result
+        if type(clim) == Dataset:
+            clim.update(out, drop_dims=drop_dims)
+            return clim
         else:
             return out
+
             
                
 @numba.njit(fastmath=True, parallel=True)
@@ -92,6 +119,7 @@ def _avg(frame, temp, poly):
     res_ndim = temp.ndim
     
     w = 0
+    
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
             for a in prange(frame.shape[2]):
