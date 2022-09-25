@@ -7,6 +7,7 @@ import os
 import dask
 import dask.array
 from functools import lru_cache
+from copy import deepcopy
 
 from .shp_utils import *
 
@@ -16,9 +17,7 @@ class GeoRegions:
         self.shp = shp
         self.regions = self.shp[regionid]
         if region_list is not None:
-            m = np.in1d(self.regions, region_list)
-            self.shp = self.shp[m]
-            self.regions = self.regions[m]
+            self.sel(region_list, update=True)
         
     @lru_cache(maxsize=None)
     def poly_array(self, buffer=0, datatype='dask', chunks=1):
@@ -39,6 +38,19 @@ class GeoRegions:
     def plot_region(self, region, **kwargs):
         geo = self.shp.loc[self.regions==region].geometry
         return geo.boundary.plot(**kwargs)
+    
+    def sel(self, region_list, update=False):
+
+        if update:
+            shp = self
+        else:
+            shp = deepcopy(self)
+            
+        m = np.in1d(shp.regions, region_list)
+        shp.shp = shp.shp[m]
+        shp.regions = shp.regions[m] 
+        
+        return shp
     
 def from_path(path, regionid, region_list=None):
     shp = gpd.read_file(path)

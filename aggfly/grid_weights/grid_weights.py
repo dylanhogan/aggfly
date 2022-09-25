@@ -25,7 +25,7 @@ class GridWeights:
         self.georegions = georegions      
         self.grid.clip_grid_to_georegions_extent(georegions)
         self.raster_weights = raster_weights
-        self.rchunk = int(len(self.georegions.regions)/ncpu)
+        self.rchunk = max(int(len(self.georegions.regions)/ncpu), 1)
     
     @lru_cache(maxsize=None)
     def mask(self, buffer=0, compute=True):

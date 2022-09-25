@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
+import geopandas as gpd
 import numba
 import zarr
 import dask
@@ -9,10 +10,20 @@ from dataclasses import dataclass
 
 from .grid import Grid
 from .grid_utils import *
+from ..regions import GeoRegions
 
 class Dataset:
     
-    def __init__(self, da, name=None):
+    def __init__(self,
+                 da, 
+                 xycoords=('longitude', 'latitude'),
+                 timefix=False,
+                 name=None):
+        
+        da = clean_dims(da, xycoords)
+        if timefix:
+            da = timefix(da)
+            
         self.update(da, init=True)
         self.name = name
         self.coords = self.da.coords
@@ -109,8 +120,42 @@ class Dataset:
             temp_dims_changed = not np.array_equiv(temp_dims, new_temp_dims)
             if temp_dims_changed:
                 self.history.append('temporal')
-            
-    
+        
+    @lru_cache(maxsize=None)
+    def interior_cells(self, georegions, buffer=None, dtype='georegions'):
+        
+        if buffer is None:
+            buffer = self.grid.resolution
+        
+        # mask = self.grid.mask(georegions, buffer=buffer)
+        cells = self.grid.centroids_to_cell(georegions, buffer=buffer)
+        # if dtype == 'gpd':
+        
+        cells = xr.DataArray(
+            data = cells,
+            dims = ['region', 'latitude', 'longitude'],
+            coords = dict(
+                latitude = ('latitude', self.latitude.values),
+                longitude = ('longitude', self.longitude.values),
+                region = ('region', georegions.regions)
+            )
+        )
+        
+        if dtype == 'xarray':
+            return cells
+        elif dtype == 'gdf' or dtype == 'georegions':
+            cells.name = 'geometry'
+            out = cells.to_dataframe()
+            df = out.loc[np.logical_not(out.geometry.isnull())]
+            df = df.reset_index()[['region','geometry']]
+            if dtype == 'gdf':
+                return df
+            elif dtype == 'georegions':
+                df['cellnum'] = np.arange(len(df)) + 1
+                return GeoRegions(df, 'cellnum')
+        else:
+            return NotImplementedError
+        
     def sel(self, **kwargs):
         da = self.da
         for k in kwargs.keys():
@@ -132,6 +177,8 @@ class Dataset:
         arr = self.da.data.map_blocks(_interact, inter) 
         self.update(arr)
         self.history.append('interacted')
+        
+
             
 @numba.njit(fastmath=True, parallel=True)               
 def _power(array, exp):
@@ -140,6 +187,8 @@ def _power(array, exp):
 @numba.njit(fastmath=True, parallel=True)               
 def _interact(array, inter):
     return np.multiply(array, inter)
+
+
 
 def from_path(path, var, engine, preprocess=None, name=None, chunks='auto', **kwargs):
     if "*" in path:
