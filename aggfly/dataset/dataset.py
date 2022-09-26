@@ -17,12 +17,18 @@ class Dataset:
     def __init__(self,
                  da, 
                  xycoords=('longitude', 'latitude'),
-                 timefix=False,
+                 time_sel=None,
+                 preprocess=None,
+                 clip_geom=None,
+                 time_fix=False,
                  name=None):
         
         da = clean_dims(da, xycoords)
-        if timefix:
-            da = timefix(da)
+        if time_sel is not None:
+            da = da.sortby('time').sel(time=time_sel)
+            time_fix=True
+        if preprocess is not None:
+            da = preprocess(da)
             
         self.update(da, init=True)
         self.name = name
@@ -34,6 +40,11 @@ class Dataset:
         self.grid = Grid(self.longitude,
                                 self.latitude)       
         self.history = []
+        
+        if clip_geom is not None:
+            self.clip_data_to_georegions_extent(clip_geom)
+        if time_fix:
+            self.update(timefix(self.da), init=True)
             
     def rechunk(self, chunks='auto'):
         # Rechunk data
@@ -149,10 +160,11 @@ class Dataset:
             df = out.loc[np.logical_not(out.geometry.isnull())]
             df = df.reset_index()[['region','geometry']]
             if dtype == 'gdf':
-                return df
+                return gpd.GeoDataFrame(df)
             elif dtype == 'georegions':
-                df['cellnum'] = np.arange(len(df)) + 1
-                return GeoRegions(df, 'cellnum')
+                count = df.groupby(['region']).cumcount()+1
+                df['cellid'] = [f'{df.region[i]}.{count[i]}' for i in range(len(df.region))]
+                return GeoRegions(gpd.GeoDataFrame(df), 'cellid')
         else:
             return NotImplementedError
         
@@ -190,7 +202,8 @@ def _interact(array, inter):
 
 
 
-def from_path(path, var, engine, preprocess=None, name=None, chunks='auto', **kwargs):
+def from_path(path, var, engine, xycoords=('longitude', 'latitude'), time_sel=None, clip_geom=None,
+              time_fix=False, preprocess=None, name=None, chunks='auto', **kwargs):
     if "*" in path:
         # array = xr.open_mfdataset(path, engine=engine, chunks=chunks,
         #                           preprocess=preprocess, **kwargs)[var]
@@ -205,9 +218,18 @@ def from_path(path, var, engine, preprocess=None, name=None, chunks='auto', **kw
         else:
             array = xr.open_dataset(path, engine=engine, **kwargs)[var]
         
-        if preprocess is not None:
-            array = preprocess(array)
-    return Dataset(array, name)
+        # if time_sel is not None:
+        #     array = array.sortby('time').sel(time=time_sel)
+        # if preprocess is not None:
+        #     array = preprocess(array)
+    return Dataset(
+        array,
+        xycoords=xycoords,
+        time_sel=time_sel,
+        preprocess=preprocess,
+        clip_geom=clip_geom,
+        time_fix=time_fix,
+        name=name)
     
 def from_name(name, var, chunks='auto', **kwargs):
     # if name == 'prism':

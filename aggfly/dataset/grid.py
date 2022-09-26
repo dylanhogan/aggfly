@@ -27,7 +27,7 @@ class Grid:
         return centroids
     
     def get_resolution(self):
-        return np.diff(self.longitude).mean()
+        return abs(np.diff(self.latitude).mean())
 
     def get_cell_area(self):
         cell = pygeos.box(0, 0, self.resolution, self.resolution)

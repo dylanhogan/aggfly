@@ -149,7 +149,7 @@ class GridWeights:
         b_area = ( borders.map_blocks(pygeos.area)
                   .compute()
                   .fillna(0) ) / self.grid.cell_area    
-        cells = self.mask(buffer=-self.grid.resolution)*self.grid.cell_area
+        cells = (self.mask(buffer=-self.grid.resolution) *self.grid.cell_area) / self.grid.cell_area  
         weights = xr.DataArray(data=b_area, 
                                dims=cells.dims, 
                                coords=cells.coords) + cells
