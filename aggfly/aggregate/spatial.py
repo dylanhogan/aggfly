@@ -28,11 +28,12 @@ class SpatialAggregator:
     
     def assign_func(self):
         if self.calc == 'avg':
-            f = self._avg
+            f = _avg
             self.args = (self.poly,)
         return f
     
     def execute(self, arr, weight, **kwargs):
+        # return **kwargs
         return self.func(arr, weight, *self.args, **kwargs)
     
     def map_execute(self, clim, weights, update=False, **kwargs):
@@ -42,9 +43,17 @@ class SpatialAggregator:
         
         if type(clim) == Dataset:
             da = clim.da.data
+            # da.rechunk(-1)
         else:
             da = clim
-            
+            # da.rechunk(-1)
+
+#         if type(weights) == xr.core.dataarray.DataArray:
+#             weights.chunk(-1)
+#         else:
+#             weights.rechunk(-1)
+
+    
         out = da.map_blocks(
                 self.execute,
                 weights.data,
@@ -59,33 +68,33 @@ class SpatialAggregator:
             new_dims={'region': weights.region.values})
         return clim
     
-    @staticmethod
-    @numba.njit(fastmath=True, parallel=True)
-    def _avg(frame, weight, poly):
-        
-        frame_shp = frame.shape
-        frame = nb_expander(frame)
-        res = np.zeros((weight.shape[0],) + frame.shape[2:], dtype=np.float64)
-        wes = np.zeros((weight.shape[0],) + frame.shape[2:], dtype=np.float64)
-        for r in prange(weight.shape[0]):
-            # print(r)
-            yl, xl = np.nonzero(weight[r,:,:])
-            for a in prange(frame.shape[2]):
-                for m in prange(frame.shape[3]):
-                    for d in prange(frame.shape[4]):
-                        for h in prange(frame.shape[5]):
-                            for l in prange(len(yl)):
-                                y = yl[l]
-                                x = xl[l]
-                                # I can't believe this was actually the solution
-                                # https://github.com/numba/numba/issues/2919
-                                if int(frame[y,x,a,m,d,h]) != -9223372036854775808:
-                                    f = frame[y,x,a,m,d,h]
-                                    w = weight[r,y,x]
-                                    res[r,a,m,d,h] += f * w
-                                    wes[r,a,m,d,h] += w
-        out = res/wes
-        return out.reshape((weight.shape[0],) + frame_shp[2:])
+
+@numba.njit(fastmath=True, parallel=True)
+def _avg(frame, weight, poly):
+
+    frame_shp = frame.shape
+    frame = nb_expander(frame)
+    res = np.zeros((weight.shape[0],) + frame.shape[2:], dtype=np.float64)
+    wes = np.zeros((weight.shape[0],) + frame.shape[2:], dtype=np.float64)
+    for r in prange(weight.shape[0]):
+        # print(r)
+        yl, xl = np.nonzero(weight[r,:,:])
+        for a in prange(frame.shape[2]):
+            for m in prange(frame.shape[3]):
+                for d in prange(frame.shape[4]):
+                    for h in prange(frame.shape[5]):
+                        for l in prange(len(yl)):
+                            y = yl[l]
+                            x = xl[l]
+                            # I can't believe this was actually the solution
+                            # https://github.com/numba/numba/issues/2919
+                            if int(frame[y,x,a,m,d,h]) != -9223372036854775808:
+                                f = frame[y,x,a,m,d,h]
+                                w = weight[r,y,x]
+                                res[r,a,m,d,h] += f * w
+                                wes[r,a,m,d,h] += w
+    out = res/wes
+    return out.reshape((weight.shape[0],) + frame_shp[2:])
 
 def from_name(name='era5l',
               calc=('avg', 1)):

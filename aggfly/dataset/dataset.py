@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
+import geopandas as gpd
 import numba
 import zarr
 import dask
@@ -9,10 +10,26 @@ from dataclasses import dataclass
 
 from .grid import Grid
 from .grid_utils import *
+from ..regions import GeoRegions
 
 class Dataset:
     
-    def __init__(self, da, name=None):
+    def __init__(self,
+                 da, 
+                 xycoords=('longitude', 'latitude'),
+                 time_sel=None,
+                 preprocess=None,
+                 clip_geom=None,
+                 time_fix=False,
+                 name=None):
+        
+        da = clean_dims(da, xycoords)
+        if time_sel is not None:
+            da = da.sortby('time').sel(time=time_sel)
+            time_fix=True
+        if preprocess is not None:
+            da = preprocess(da)
+            
         self.update(da, init=True)
         self.name = name
         self.coords = self.da.coords
@@ -23,6 +40,11 @@ class Dataset:
         self.grid = Grid(self.longitude,
                                 self.latitude)       
         self.history = []
+        
+        if clip_geom is not None:
+            self.clip_data_to_georegions_extent(clip_geom)
+        if time_fix:
+            self.update(timefix(self.da), init=True)
             
     def rechunk(self, chunks='auto'):
         # Rechunk data
@@ -109,8 +131,43 @@ class Dataset:
             temp_dims_changed = not np.array_equiv(temp_dims, new_temp_dims)
             if temp_dims_changed:
                 self.history.append('temporal')
-            
-    
+        
+    @lru_cache(maxsize=None)
+    def interior_cells(self, georegions, buffer=None, dtype='georegions'):
+        
+        if buffer is None:
+            buffer = self.grid.resolution
+        
+        # mask = self.grid.mask(georegions, buffer=buffer)
+        cells = self.grid.centroids_to_cell(georegions, buffer=buffer)
+        # if dtype == 'gpd':
+        
+        cells = xr.DataArray(
+            data = cells,
+            dims = ['region', 'latitude', 'longitude'],
+            coords = dict(
+                latitude = ('latitude', self.latitude.values),
+                longitude = ('longitude', self.longitude.values),
+                region = ('region', georegions.regions)
+            )
+        )
+        
+        if dtype == 'xarray':
+            return cells
+        elif dtype == 'gdf' or dtype == 'georegions':
+            cells.name = 'geometry'
+            out = cells.to_dataframe()
+            df = out.loc[np.logical_not(out.geometry.isnull())]
+            df = df.reset_index()[['region','geometry']]
+            if dtype == 'gdf':
+                return gpd.GeoDataFrame(df)
+            elif dtype == 'georegions':
+                count = df.groupby(['region']).cumcount()+1
+                df['cellid'] = [f'{df.region[i]}.{count[i]}' for i in range(len(df.region))]
+                return GeoRegions(gpd.GeoDataFrame(df), 'cellid')
+        else:
+            return NotImplementedError
+        
     def sel(self, **kwargs):
         da = self.da
         for k in kwargs.keys():
@@ -132,6 +189,8 @@ class Dataset:
         arr = self.da.data.map_blocks(_interact, inter) 
         self.update(arr)
         self.history.append('interacted')
+        
+
             
 @numba.njit(fastmath=True, parallel=True)               
 def _power(array, exp):
@@ -141,7 +200,10 @@ def _power(array, exp):
 def _interact(array, inter):
     return np.multiply(array, inter)
 
-def from_path(path, var, engine, preprocess=None, name=None, chunks='auto', **kwargs):
+
+
+def from_path(path, var, engine, xycoords=('longitude', 'latitude'), time_sel=None, clip_geom=None,
+              time_fix=False, preprocess=None, name=None, chunks='auto', **kwargs):
     if "*" in path:
         # array = xr.open_mfdataset(path, engine=engine, chunks=chunks,
         #                           preprocess=preprocess, **kwargs)[var]
@@ -156,9 +218,18 @@ def from_path(path, var, engine, preprocess=None, name=None, chunks='auto', **kw
         else:
             array = xr.open_dataset(path, engine=engine, **kwargs)[var]
         
-        if preprocess is not None:
-            array = preprocess(array)
-    return Dataset(array, name)
+        # if time_sel is not None:
+        #     array = array.sortby('time').sel(time=time_sel)
+        # if preprocess is not None:
+        #     array = preprocess(array)
+    return Dataset(
+        array,
+        xycoords=xycoords,
+        time_sel=time_sel,
+        preprocess=preprocess,
+        clip_geom=clip_geom,
+        time_fix=time_fix,
+        name=name)
     
 def from_name(name, var, chunks='auto', **kwargs):
     # if name == 'prism':

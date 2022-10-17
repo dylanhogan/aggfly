@@ -1,5 +1,6 @@
 name: clim-ag38
 channels:
+  - conda-forge/label/cf202003
   - conda-forge
   - defaults
 dependencies:
@@ -166,6 +167,7 @@ dependencies:
   - netcdf-fortran=4.5.4=nompi_h2b6e579_100
   - netcdf4=1.5.8=nompi_py38h2823cc8_101
   - networkx=2.8.4=py38h06a4308_0
+  - nodejs=12.4.0=he1b5a44_0
   - notebook=6.4.11=py38h06a4308_0
   - nspr=4.33=h295c915_0
   - nss=3.78=h2350873_0

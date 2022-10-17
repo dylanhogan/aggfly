@@ -25,7 +25,7 @@ class GridWeights:
         self.georegions = georegions      
         self.grid.clip_grid_to_georegions_extent(georegions)
         self.raster_weights = raster_weights
-        self.rchunk = int(len(self.georegions.regions)/ncpu)
+        self.rchunk = max(int(len(self.georegions.regions)/ncpu), 1)
     
     @lru_cache(maxsize=None)
     def mask(self, buffer=0, compute=True):
@@ -149,7 +149,7 @@ class GridWeights:
         b_area = ( borders.map_blocks(pygeos.area)
                   .compute()
                   .fillna(0) ) / self.grid.cell_area    
-        cells = self.mask(buffer=-self.grid.resolution)*self.grid.cell_area
+        cells = (self.mask(buffer=-self.grid.resolution) *self.grid.cell_area) / self.grid.cell_area  
         weights = xr.DataArray(data=b_area, 
                                dims=cells.dims, 
                                coords=cells.coords) + cells
