@@ -49,6 +49,20 @@ def reformat_grid(longitude, latitude, datatype='array', chunks=30):
                           for x in [longitude, latitude]]
         centroids = longitude.map_blocks(pygeos.points, y=latitude, dtype=float)
         centroids = centroids.rechunk(autochunk(centroids))
+    elif datatype=='xarray':
+        if type(longitude) is not dask.array.core.Array:
+            longitude, latitude = [dask.array.from_array(x, chunks='auto') 
+                          for x in [longitude, latitude]]
+        centroids = longitude.map_blocks(pygeos.points, y=latitude, dtype=float)
+        centroids = centroids.rechunk(autochunk(centroids)) 
+        return xr.DataArray(
+            data = centroids,
+            dims = ['latitude', 'longitude'],
+            coords = {
+                'longitude' : longitude,
+                'latitude' : latitude
+            }
+        )
     elif datatype=='array':
         centroids = (longitude, latitude)
     elif datatype=='empty':

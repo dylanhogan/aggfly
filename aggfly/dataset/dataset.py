@@ -76,6 +76,7 @@ class Dataset:
                     self.da = array
             else:
                 if type(array.data) != dask.array.core.Array:
+                    print('here')
                     self.da = array.compute()
                 else:
                     self.da = array
@@ -133,7 +134,7 @@ class Dataset:
                 self.history.append('temporal')
         
     @lru_cache(maxsize=None)
-    def interior_cells(self, georegions, buffer=None, dtype='georegions'):
+    def interior_cells(self, georegions, buffer=None, dtype='georegions', maxsize=None):
         
         if buffer is None:
             buffer = self.grid.resolution
@@ -158,12 +159,21 @@ class Dataset:
             cells.name = 'geometry'
             out = cells.to_dataframe()
             df = out.loc[np.logical_not(out.geometry.isnull())]
-            df = df.reset_index()[['region','geometry']]
+            df = df.reset_index()
             if dtype == 'gdf':
                 return gpd.GeoDataFrame(df)
             elif dtype == 'georegions':
-                count = df.groupby(['region']).cumcount()+1
-                df['cellid'] = [f'{df.region[i]}.{count[i]}' for i in range(len(df.region))]
+                if maxsize is None:
+                    count = df.groupby(['region']).cumcount()+1
+                    df['cellid'] = [f'{df.region[i]}.{count[i]}' for i in range(len(df.region))]
+                else:
+                    subregion = df.groupby(['region']).cumcount()+1
+                    subregion = np.int64(np.floor(subregion/maxsize)) + 1
+                    df['subregion'] = [f'{df.region[i]}.{subregion[i]}' for i in range(len(df.region))]
+                    count = df.groupby(['region', 'subregion']).cumcount()+1
+                    df['cellid'] = [f'{df.region[i]}.{subregion[i]}.{count[i]}' for i in range(len(df.region))]
+                    
+                gdf = GeoRegions(gpd.GeoDataFrame(df), 'cellid')
                 return GeoRegions(gpd.GeoDataFrame(df), 'cellid')
         else:
             return NotImplementedError

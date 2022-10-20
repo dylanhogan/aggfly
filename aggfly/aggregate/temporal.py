@@ -76,7 +76,9 @@ class TemporalAggregator:
         
         # This enables you to run directly on dask array rather
         # than my Dataset object
+
         if type(clim) == Dataset:
+
             da = clim.da.data
             # Have the data been collapsed spatially?
             collapsed = 'spatial' in clim.history
@@ -149,16 +151,20 @@ def _sum(frame, temp, poly):
     res_shp = nb_contractor(frame, temp) 
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
+    # isna_dim = np.ones_like(res)
     frame = nb_expander(frame)
     res_ndim = temp.ndim
+    isna_dim = frame.shape[2]*frame.shape[3]*frame.shape[4]*frame.shape[5]
     
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
+            isna = 0
             for a in prange(frame.shape[2]):
                 for m in prange(frame.shape[3]):
                     for d in prange(frame.shape[4]):
                         for h in prange(frame.shape[5]):
                             i=(y,x,a,m,d,h)
+                            # j+=1
                             if res_ndim == 2:
                                 ind = (i[0],i[1],0,0,0,0)
                             elif res_ndim == 3:
@@ -168,7 +174,11 @@ def _sum(frame, temp, poly):
                             elif res_ndim == 5:
                                 ind = (i[0],i[1],i[2],i[3],i[4],0)
                             if int(frame[i]) != -9223372036854775808:
-                                res[ind] += frame[i]
+                                res[ind] += frame[i]      
+                            else:
+                                isna += 1
+            if isna == isna_dim:
+                res[y,x,:,:,:,:] = np.nan
     return np.power(res, poly).reshape(res_shp)
                
 @numba.njit(fastmath=True, parallel=True)
@@ -222,10 +232,13 @@ def _time(frame, temp, poly, ddargs):
     res = nb_expander(res_empty)
     frame = nb_expander(frame)
     res_ndim = temp.ndim
+    nv = -9223372036854775808
+    isna_dim = frame.shape[2]*frame.shape[3]*frame.shape[4]*frame.shape[5]
     
     w=0
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
+            isna = 0
             for a in prange(frame.shape[2]):
                 for m in prange(frame.shape[3]):
                     for d in prange(frame.shape[4]):
@@ -241,11 +254,16 @@ def _time(frame, temp, poly, ddargs):
                             elif res_ndim == 5:
                                 ind = (i[0],i[1],i[2],i[3],i[4],0)
                             f = frame[i]
-                            if f > ddargs[0] and f < ddargs[1]:
-                                res[ind]+=1
+                            if int(f) != nv:
+                                if f > ddargs[0] and f < ddargs[1]:
+                                    res[ind]+=1
+                            else:
+                                isna += 1
+            if isna == isna_dim:
+                res[y,x,:,:,:,:] = np.nan
     for s in res.shape:
         w = w / s
-    out = res / w
+    out = (res / w) 
     return np.power(out, poly).reshape(res_shp)
 
 @numba.njit(fastmath=True, parallel=True)
