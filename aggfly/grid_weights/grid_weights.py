@@ -19,24 +19,50 @@ from ..utils import *
 
 class GridWeights:
     
-    def __init__(self, grid, georegions, raster_weights, ncpu=55):
+    def __init__(self, grid, georegions, raster_weights, chunks=None, ncpu=55):
         
         self.grid = grid  
         self.georegions = georegions      
         self.grid.clip_grid_to_georegions_extent(georegions)
         self.raster_weights = raster_weights
-        self.rchunk = max(int(len(self.georegions.regions)/ncpu), 1)
-    
-    @lru_cache(maxsize=None)
-    def mask(self, buffer=0, compute=True):
+        self.ncpu = ncpu
+        if chunks is None:
+            self.rchunk = max(int(len(self.georegions.regions)/ncpu), 1)
+        else:
+            self.rchunk = chunks
+            
+    # @lru_cache(maxsize=None)
+    def mask(self, buffer=0, compute=True, chunks=None):
         
-        mask = (self.georegions.poly_array(buffer, 'dask').rechunk(self.rchunk)
-                .map_blocks(pygeos.contains, self.grid.centroids(), dtype=float))
+
+            
+        centroids = self.grid.centroids()
+        fc = centroids.flatten()
+        
+        if chunks is None:
+            if self.rchunk is None:
+                chunks = int(len(fc) / self.ncpu)
+            else:
+                chunks = self.rchunk
+        
+        fc = fc.rechunk(chunks)[...,None]
+        
+        poly_array = self.georegions.poly_array(buffer, 'dask').squeeze()
+        poly_shp = poly_array.shape
+        poly_array = poly_array.rechunk(int(len(poly_array) / 2))[None,...]
+                           
+        mask = fc.map_blocks(pygeos.within, poly_array, dtype=bool)
+        
+        with dask.config.set(**{'array.slicing.split_large_chunks': False}):
+            mask = mask.reshape((*centroids.shape, *poly_shp))
+            mask = np.moveaxis(mask, -1, 0)
+        # mask = (self.georegions.poly_array(buffer, 'dask').rechunk(-1)
+        #         .map_blocks(pygeos.contains, grid, dtype=float))
         if compute:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 # m = np.moveaxis(mask.compute().squeeze(), -1, 0)
-                m = mask.compute().squeeze()
+                m = mask.squeeze()
                 da = xr.DataArray(
                     data = m,
                     dims = ['region', 'latitude', 'longitude'],
@@ -50,7 +76,7 @@ class GridWeights:
         else:
             return mask
 
-    @lru_cache(maxsize=None)    
+    # @lru_cache(maxsize=None)    
     def grid_geo_from_centroids(self, region, buffer=0, geo=True):
         gres = self.grid.resolution
         m = self.mask(buffer).sel(region=region)
@@ -74,12 +100,12 @@ class GridWeights:
         else:
             return gridshp
     
-    @lru_cache(maxsize=None) 
+    # @lru_cache(maxsize=None) 
     def interior_centroids_geo(self, region, buffer=0):
         m = self.mask(buffer).sel(region=region)
         return bool_array_to_geoseries(m)
 
-    @lru_cache(maxsize=None) 
+    # @lru_cache(maxsize=None) 
     def border_centroids(self, buffers=None, output='mask'):
         if buffers is None:
             buffers = (-self.grid.resolution, self.grid.resolution)
@@ -97,7 +123,7 @@ class GridWeights:
             raise NotImplementedError
     
     def centroids_to_cell(self, msk, chunksize=100, datatype='xarray', 
-                          compute=True, return_boxes=False): 
+                          compute=True, return_boxes=False):
         pol = (self.georegions.poly_array(buffer=0)
                       .rechunk((self.rchunk, -1, -1)))
         X, Y = np.meshgrid(msk.lon, msk.lat)
@@ -139,11 +165,11 @@ class GridWeights:
         else:
             return result
    
-    @lru_cache(maxsize=None)
+    # @lru_cache(maxsize=None)
     def border_centroids_to_cell(self, compute=True):
         return self.centroids_to_cell(self.border_centroids())
     
-    @lru_cache(maxsize=None)
+    # @lru_cache(maxsize=None)
     def calculate_area_weights(self):
         borders = self.border_centroids_to_cell(compute=False)
         b_area = ( borders.map_blocks(pygeos.area)
@@ -155,7 +181,7 @@ class GridWeights:
                                coords=cells.coords) + cells
         return weights
         
-    @lru_cache(maxsize=None)
+    # @lru_cache(maxsize=None)
     def calculate_weighted_area_weights(self):
 
         aw = self.calculate_area_weights()
@@ -173,7 +199,7 @@ class GridWeights:
         )
         return da    
     
-    @lru_cache(maxsize=None)
+    # @lru_cache(maxsize=None)
     def weights(self, chunk=None):
         if chunk is None:
             c = max([int(len(self.georegions.regions)/55),1])
@@ -204,7 +230,7 @@ class GridWeights:
         border_centroids = self.border_centroids_to_cell()
         return gpd.GeoSeries(areas).plot(**kwargs)
 
-def from_objects(clim, georegions, crop='corn'):
+def from_objects(clim, georegions, crop='corn', **kwargs):
     
     if crop is not None:
         raster_weights = crop_weights.from_name(
@@ -212,7 +238,7 @@ def from_objects(clim, georegions, crop='corn'):
     else:
         raster_weights = None
     
-    return GridWeights(clim.grid, georegions, raster_weights)
+    return GridWeights(clim.grid, georegions, raster_weights, **kwargs)
     
     
     
