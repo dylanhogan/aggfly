@@ -61,6 +61,8 @@ def from_name(name='usa', region_list=None):
         return GeoRegions(open_usa_shp(), 'state', region_list)
     if name == 'counties':
         return GeoRegions(open_counties_shp(), 'fips', region_list)
+    if name == 'uk':
+        return GeoRegions(open_uk_shp(), 'id', region_list)
     else:
         raise NotImplementedError
     

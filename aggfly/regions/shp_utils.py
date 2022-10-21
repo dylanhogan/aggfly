@@ -26,3 +26,24 @@ def open_counties_shp(region_list=None,
     if region_list:
         counties = counties[counties.fips.isin(region_list)]
     return counties
+
+def open_uk_shp(region_list=None, 
+        uk_shp_path = '/projects/OPPENHEIMER/tb/shp/uk/data/International_Territorial_Level_3_(January_2021)_UK_BFE_V3/ITL3_JAN_2021_UK_BFE_V3.shp'):
+
+    # Load shapefile
+    uk_shp_path = '/projects/OPPENHEIMER/tb/shp/uk/data/International_Territorial_Level_3_(January_2021)_UK_BFE_V3/ITL3_JAN_2021_UK_BFE_V3.shp'
+    uk = gpd.read_file(uk_shp_path)
+    
+    # Change the names
+    uk['id'] = uk.ITL321CD
+    uk = uk.rename(columns ={'LONG':'longitude', 'LAT':'latitude'})
+    
+    # Change the crs
+    code = "/home/bearpark/Documents/aggfly/"
+    dylans_shp = gpd.read_file(f"{code}data/shapefiles/usa_simple_noHI.shp")
+    crs = dylans_shp.crs
+    uk = uk.to_crs(crs)
+    
+    if region_list:
+        uk = uk[uk.id.isin(region_list)]
+    return uk
