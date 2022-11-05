@@ -36,6 +36,9 @@ class Grid:
     @lru_cache(maxsize=None)
     def clip_grid_to_georegions_extent(self, georegions):
         bounds = georegions.shp.total_bounds
+        self.clip_grid_to_bbox(bounds)
+
+    def clip_grid_to_bbox(self, bounds):
         inlon = np.logical_and(
             self.longitude >= bounds[0] - self.resolution / 2,
             self.longitude <= bounds[2] + self.resolution / 2)
@@ -50,7 +53,7 @@ class Grid:
         
         self.longitude = self.longitude[inlon]
         self.latitude = self.latitude[inlat]
-        
+    
     @lru_cache(maxsize=None)
     def mask(self, georegions, buffer=0, chunksize=100, compute=True):
         

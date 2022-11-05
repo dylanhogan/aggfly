@@ -60,7 +60,7 @@ class SpatialAggregator:
                 dtype=float,
                 drop_axis=[0,1],
                 new_axis=0,
-                chunks=(weights.data.shape[0:1]+da.shape[2:]))
+                chunks=(weights.data.chunks[0:1]+da.chunks[2:]))
         
         clim.update(
             out,

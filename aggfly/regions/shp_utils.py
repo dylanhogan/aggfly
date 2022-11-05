@@ -25,3 +25,16 @@ def open_counties_shp(region_list=None):
     if region_list:
         counties = counties[counties.fips.isin(region_list)]
     return counties
+
+@lru_cache(maxsize=None)
+def open_global_shp(region_list=None):
+    f = "/home3/dth2133/data/shapefiles/country/world_countries_2020.shp"
+    countries = gpd.read_file(f)
+    
+    # Drop Antarctica and disputed areas...
+    countries = countries.loc[countries.OBJECTID != 232]
+    countries = countries.loc[countries.CNTRY_CODE != '9999']
+    
+    if region_list:
+        countries = countries[countries.OBJECTID.isin(region_list)]
+    return countries

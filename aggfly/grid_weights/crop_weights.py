@@ -63,18 +63,26 @@ class CropWeights:
                             dims=template.dims, 
                             coords=template.coords)
 
-def from_path(path, crop='corn', grid=None, write=False):
+def from_path(path, crop='corn', grid=None, write=False, name=None, feed=None):
     
     # Separate file path from file extension
     file, ex = os.path.splitext(path)
     
     # If grid supplied, check to see if a file exists with rescaled raster
     if grid is not None:
+        
         gdict = {'grid':grid.resolution, 
                  'longitude':grid.longitude, 
                  'latitude':grid.latitude, 
                  'area': grid.cell_area, 
                  'crop':crop}
+        
+        if name is not None:
+            gdict['name'] = name
+            
+        if feed is not None:
+            gdict['feed'] = feed
+            
         dump = json.dumps(str(gdict),sort_keys=True).encode('utf8')
         code = '_dscale-' + sha256(dump).hexdigest()[:15]
         if os.path.exists(file + code + '.zarr') and not write:
@@ -105,14 +113,22 @@ def from_path(path, crop='corn', grid=None, write=False):
         
     return weights     
 
-def from_name(name='cropland', crop='corn', grid=None, write=False):
+def from_name(name='cropland', crop='corn', grid=None, feed='total', write=False):
     if name == 'cropland':
         path = "/home3/dth2133/data/cropland/2021_crop_mask.zarr"
+        # preprocess = 
+    elif name == 'GAEZ':
+        path = f"/home3/dth2133/data/GAEZ/GAEZ_2015_all-crops_{feed}.nc"
     else:
         raise NotImplementedError
-    return from_path(path, crop=crop, grid=grid, write=write)
+    return from_path(path, 
+                     crop=crop, 
+                     grid=grid, 
+                     write=write, 
+                     name=name, 
+                     feed=feed)
 
-def open_raster(path, crop, **kwargs):
+def open_raster(path, crop, preprocess=None, **kwargs):
     
     # Separate file path from file extension
     file, ex = os.path.splitext(path)
@@ -122,7 +138,12 @@ def open_raster(path, crop, **kwargs):
             path,
             chunks=True,
             lock=False,  **kwargs)
-        da = format_tif_da(da, crop)
+        
+        if preprocess is not None:
+            da = preprocess(da, crop)
+        else:
+            da = format_cropland_tif_da(da, crop)
+            
     elif ex =='.zarr':
         da = xr.open_zarr(path,  **kwargs)
         da = da.layer.sel(crop=crop)
@@ -134,8 +155,8 @@ def open_raster(path, crop, **kwargs):
     
     return da
 
-def format_tif_da(da, crop):
-    return (da.isin([crop_id(crop)])
+def format_cropland_tif_da(da, crop):
+    return (da.isin([cropland_id(crop)])
             .drop('band')
             .squeeze()
             .expand_dims('crop')
@@ -144,7 +165,7 @@ def format_tif_da(da, crop):
                 np.array(self.crop_dict[num]).reshape(1)))
             .to_dataset(name='layer'))
 
-def crop_id(crop):
+def cropland_id(crop):
     crop_dict = {
         'corn':1,
         'cotton':2,

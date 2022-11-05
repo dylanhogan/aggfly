@@ -49,15 +49,24 @@ class Dataset:
     def rechunk(self, chunks='auto'):
         # Rechunk data
         self.da = self.da.chunk(chunks)
-            
-    def clip_data_to_georegions_extent(self, georegions, split=False):
-        self.grid.clip_grid_to_georegions_extent(georegions)
+
+    def clip_data_to_grid(self, split=False):
         with dask.config.set(**{'array.slicing.split_large_chunks': split}):
             self.da = self.da.sel(latitude = self.grid.latitude, 
                                   longitude = self.grid.longitude)
         self.coords = self.da.coords
         self.longitude = self.da.longitude
         self.latitude = self.da.latitude
+                
+    def clip_data_to_georegions_extent(self, georegions, split=False):
+        self.grid.clip_grid_to_georegions_extent(georegions)
+        self.clip_data_to_grid(split)
+        
+    def clip_data_to_bbox(self, bounds, split=False):
+        self.grid.clip_grid_to_bbox(bounds)
+        self.clip_data_to_grid(split)
+        
+        
         
     def update(self, array, drop_dims=None, new_dims=None, pos=0, dask_array=True, chunks=None, init=False):
         

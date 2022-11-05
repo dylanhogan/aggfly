@@ -33,17 +33,12 @@ class GridWeights:
             
     # @lru_cache(maxsize=None)
     def mask(self, buffer=0, compute=True, chunks=None):
-        
-
             
         centroids = self.grid.centroids()
         fc = centroids.flatten()
         
         if chunks is None:
-            if self.rchunk is None:
-                chunks = int(len(fc) / self.ncpu)
-            else:
-                chunks = self.rchunk
+            chunks = int(len(fc) / self.ncpu)
         
         fc = fc.rechunk(chunks)[...,None]
         
@@ -58,6 +53,11 @@ class GridWeights:
             mask = np.moveaxis(mask, -1, 0)
         # mask = (self.georegions.poly_array(buffer, 'dask').rechunk(-1)
         #         .map_blocks(pygeos.contains, grid, dtype=float))
+        
+        # mask = (self.georegions.poly_array(buffer, 'dask')
+        #         .rechunk(chunks)
+        #         .map_blocks(pygeos.contains, self.grid.centroids(), dtype=float))
+        
         if compute:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -136,6 +136,7 @@ class GridWeights:
                 region = ('region', msk.region.values)
             )
         )
+        # cmask = cmask.compute()
         mlon = np.moveaxis(np.array(cmask.lon.where(cmask)), -1, 0)
         mlat = np.moveaxis(np.array(cmask.lat.where(cmask)), -1, 0)
         lonpoints = [dask.array.from_array(mlon + x, chunks=(self.rchunk, -1, -1)) 
@@ -166,48 +167,71 @@ class GridWeights:
             return result
    
     # @lru_cache(maxsize=None)
-    def border_centroids_to_cell(self, compute=True):
-        return self.centroids_to_cell(self.border_centroids())
+    def border_centroids_to_cell(self, data={}, compute=True):
+        if 'border_centroids' not in data:
+            bc = self.border_centroids()
+        else:
+            bc = data['border_centroids']
+        return self.centroids_to_cell(bc)
     
     # @lru_cache(maxsize=None)
-    def calculate_area_weights(self):
-        borders = self.border_centroids_to_cell(compute=False)
+    def calculate_area_weights(self, data={}):
+        
+        if 'border_cells' not in data:
+            borders = self.border_centroids_to_cell(data=data, compute=False)
+        else:
+            borders = data['border_cells']
+        
         b_area = ( borders.map_blocks(pygeos.area)
                   .compute()
                   .fillna(0) ) / self.grid.cell_area    
-        cells = (self.mask(buffer=-self.grid.resolution) *self.grid.cell_area) / self.grid.cell_area  
+        cells = (self.mask(buffer=-self.grid.resolution) * self.grid.cell_area) / self.grid.cell_area  
         weights = xr.DataArray(data=b_area, 
                                dims=cells.dims, 
                                coords=cells.coords) + cells
-        return weights
+        return xr.DataArray(
+            data=weights.data,
+            dims = ['region', 'latitude', 'longitude'],
+            coords = dict(
+                latitude = (['latitude'], aw.lat.values),
+                longitude = (['longitude'], aw.lon.values),
+                region = (['region'], aw.region.values)
+            )   
+        )
         
     # @lru_cache(maxsize=None)
-    def calculate_weighted_area_weights(self):
-
-        aw = self.calculate_area_weights()
-
+    def calculate_weighted_area_weights(self, data={}):
+        
+        if 'area_weights' not in data:
+            aw = self.calculate_area_weights(data)
+        else:
+            aw = data['area_weights']
+        
         dsw = self.raster_weights.raster
         wts = np.multiply(aw, dsw).data
         da = xr.DataArray(
             data=wts,
             dims = ['region', 'latitude', 'longitude'],
             coords = dict(
-                lat = (['latitude'], aw.lat.values),
-                lon = (['longitude'], aw.lon.values),
+                latitude = (['latitude'], aw.lat.values),
+                longitude = (['longitude'], aw.lon.values),
                 region = (['region'], aw.region.values)
             )   
         )
         return da    
     
     # @lru_cache(maxsize=None)
-    def weights(self, chunk=None):
+    def weights(self, data={}, chunk=None):
         if chunk is None:
             c = max([int(len(self.georegions.regions)/55),1])
             chunk = (c, -1, -1)
         if self.raster_weights is None:
-            return self.calculate_area_weights().chunk(chunk)
+            if 'area_weights' not in data:
+                return self.calculate_area_weights(data).chunk(chunk)
+            else:
+                return data['area_weights']
         else:
-            return self.calculate_weighted_area_weights().chunk(chunk)
+            return self.calculate_weighted_area_weights(data).chunk(chunk)
     
     def plot_weights(self, region, buffer=0, **kwargs):
         mask = self.mask(buffer).sel(region=region)
@@ -230,11 +254,11 @@ class GridWeights:
         border_centroids = self.border_centroids_to_cell()
         return gpd.GeoSeries(areas).plot(**kwargs)
 
-def from_objects(clim, georegions, crop='corn', **kwargs):
+def from_objects(clim, georegions, crop='corn', name='cropland', feed='total', write=False, **kwargs):
     
     if crop is not None:
         raster_weights = crop_weights.from_name(
-            name='cropland', crop=crop, grid=clim.grid)
+            name=name, crop=crop, grid=clim.grid, feed=feed, write=write)
     else:
         raster_weights = None
     

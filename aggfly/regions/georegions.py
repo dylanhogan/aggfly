@@ -19,10 +19,16 @@ class GeoRegions:
         if region_list is not None:
             self.sel(region_list, update=True)
         
-    @lru_cache(maxsize=None)
+    # @lru_cache(maxsize=None)
     def poly_array(self, buffer=0, datatype='dask', chunks=1):
         poly = pygeos.from_shapely(self.shp.geometry)
-        bufferPoly = pygeos.buffer(poly, buffer)
+        if buffer != 0:
+            # bufferPoly = pygeos.buffer(poly, buffer)
+            dask_poly = dask.array.from_array(poly, chunks=int(len(poly) / 50))
+            bufferPoly = dask_poly.map_blocks(pygeos.buffer, buffer, dtype=type(poly[0])).compute()
+        else:
+            bufferPoly = poly
+            
         if datatype=='dask':
             ar = (dask.array
                     .from_array(
@@ -59,8 +65,10 @@ def from_path(path, regionid, region_list=None):
 def from_name(name='usa', region_list=None):
     if name == 'usa':
         return GeoRegions(open_usa_shp(), 'state', region_list)
-    if name == 'counties':
+    elif name == 'counties':
         return GeoRegions(open_counties_shp(), 'fips', region_list)
+    elif name == 'global':
+        return GeoRegions(open_global_shp(), 'OBJECTID', region_list) 
     else:
         raise NotImplementedError
     
