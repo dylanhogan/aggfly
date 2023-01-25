@@ -121,7 +121,6 @@ def _avg(frame, temp, poly):
     res_shp = nb_contractor(frame, temp) 
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
-    # w = nb_expander(res_empty)
     w = res.copy()
     frame = nb_expander(frame)
     res_ndim = temp.ndim
@@ -166,7 +165,6 @@ def _sum(frame, temp, poly):
                     for d in prange(frame.shape[4]):
                         for h in prange(frame.shape[5]):
                             i=(y,x,a,m,d,h)
-                            # j+=1
                             if res_ndim == 2:
                                 ind = (i[0],i[1],0,0,0,0)
                             elif res_ndim == 3:
@@ -190,10 +188,10 @@ def _dd(frame, temp, poly, ddargs):
     res_shp = nb_contractor(frame, temp) 
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
+    w = res.copy()
     frame = nb_expander(frame)
     res_ndim = temp.ndim
     
-    w=0
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
             for a in prange(frame.shape[2]):
@@ -201,7 +199,6 @@ def _dd(frame, temp, poly, ddargs):
                     for d in prange(frame.shape[4]):
                         for h in prange(frame.shape[5]):
                             i=(y,x,a,m,d,h)
-                            w += 1
                             if res_ndim == 2:
                                 ind = (i[0],i[1],0,0,0,0)
                             elif res_ndim == 3:
@@ -211,12 +208,11 @@ def _dd(frame, temp, poly, ddargs):
                             elif res_ndim == 5:
                                 ind = (i[0],i[1],i[2],i[3],i[4],0)
                             f = frame[i]
-                            if f > ddargs[0] and f < ddargs[1]:
-                                res[ind]+=np.absolute(f-ddargs[ddargs[2]])
-    for s in res.shape:
-        w = w / s
-    out = res / w
-    return np.power(out, poly).reshape(res_shp)
+                            if int(f) != -9223372036854775808:
+                                if f > ddargs[0] and f < ddargs[1]:
+                                    res[ind]+=np.absolute(f-ddargs[ddargs[2]])
+                                w[ind] += 1
+    return np.power(res/w, poly).reshape(res_shp)
 
 @numba.njit(fastmath=True, parallel=True)
 def _dd_multi(frame, temp, poly, ddargs):
@@ -232,12 +228,13 @@ def _time(frame, temp, poly, ddargs):
     res_shp = nb_contractor(frame, temp) 
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
+    w = res.copy()
     frame = nb_expander(frame)
     res_ndim = temp.ndim
+
     nv = -9223372036854775808
     isna_dim = frame.shape[2]*frame.shape[3]*frame.shape[4]*frame.shape[5]
-    
-    w=0
+
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
             isna = 0
@@ -246,7 +243,6 @@ def _time(frame, temp, poly, ddargs):
                     for d in prange(frame.shape[4]):
                         for h in prange(frame.shape[5]):
                             i=(y,x,a,m,d,h)
-                            w += 1
                             if res_ndim == 2:
                                 ind = (i[0],i[1],0,0,0,0)
                             elif res_ndim == 3:
@@ -259,14 +255,12 @@ def _time(frame, temp, poly, ddargs):
                             if int(f) != nv:
                                 if f > ddargs[0] and f < ddargs[1]:
                                     res[ind]+=1
+                                w[ind] +=1
                             else:
                                 isna += 1
             if isna == isna_dim:
                 res[y,x,:,:,:,:] = np.nan
-    for s in res.shape:
-        w = w / s
-    out = (res / w) 
-    return np.power(out, poly).reshape(res_shp)
+    return np.power(res/w, poly).reshape(res_shp)
 
 @numba.njit(fastmath=True, parallel=True)
 def _sine_dd(frame, temp, poly, ddargs):
