@@ -50,6 +50,10 @@ class TemporalAggregator:
             assert self.agg_from == 'hour'
             f = _sine_dd
             self.args = (self.temp, self.poly, self.ddargs)
+        elif self.calc == 'sine-time':
+            assert self.agg_from == 'hour'
+            f = _sine_time
+            self.args = (self.temp, self.poly, self.ddargs)
         return f
 
     def get_temp_array(self):
@@ -117,10 +121,10 @@ def _avg(frame, temp, poly):
     res_shp = nb_contractor(frame, temp) 
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
+    # w = nb_expander(res_empty)
+    w = res.copy()
     frame = nb_expander(frame)
     res_ndim = temp.ndim
-    
-    w = 0
     
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
@@ -129,8 +133,6 @@ def _avg(frame, temp, poly):
                     for d in prange(frame.shape[4]):
                         for h in prange(frame.shape[5]):
                             i=(y,x,a,m,d,h)
-                            # print(i)
-                            w += 1
                             if res_ndim == 2:
                                 ind = (i[0],i[1],0,0,0,0)
                             elif res_ndim == 3:
@@ -139,10 +141,10 @@ def _avg(frame, temp, poly):
                                 ind = (i[0],i[1],i[2],i[3],0,0) 
                             elif res_ndim == 5:
                                 ind = (i[0],i[1],i[2],i[3],i[4],0)
-                            res[ind] += frame[i]
-    for s in res.shape:
-        w = w / s
-    return np.power(res / w, poly).reshape(res_shp)
+                            if int(frame[i]) != -9223372036854775808:
+                                res[ind] += frame[i]
+                                w[ind] += 1
+    return np.power(res/w, poly).reshape(res_shp)
                
 @numba.njit(fastmath=True, parallel=True)
 def _sum(frame, temp, poly):
@@ -339,7 +341,7 @@ def _sine_time(frame, temp, poly, ddargs):
                         elif fmin < ddargs[0] and ddargs[0] < fmax:
                             xmin = np.arcsin((ddargs[0] - M)/ W)
                             res[ind] = (np.pi - 2*xmin) / (2*np.pi)
-                        res[ind] = res[ind] / (favg)
+                        # res[ind] = res[ind] / (M)
     return np.power(res, poly)
 
 def from_name(name='era5l',

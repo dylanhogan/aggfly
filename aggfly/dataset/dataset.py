@@ -29,10 +29,11 @@ class Dataset:
             time_fix=True
         if preprocess is not None:
             da = preprocess(da)
-            
+        
         self.update(da, init=True)
         self.name = name
         self.coords = self.da.coords
+        
         self.longitude = self.da.longitude
         self.latitude = self.da.latitude
         assert np.all([x in list(self.coords) for x in 
@@ -40,7 +41,6 @@ class Dataset:
         self.grid = Grid(self.longitude,
                                 self.latitude)       
         self.history = []
-        
         if clip_geom is not None:
             self.clip_data_to_georegions_extent(clip_geom)
         if time_fix:
@@ -72,6 +72,8 @@ class Dataset:
         
         if not init:
             old_coords = self.da.coords
+            
+        # print(type(array))
         
         if type(array) == xr.core.dataarray.DataArray:
             # Coerce data into dask array if necessary
@@ -85,11 +87,9 @@ class Dataset:
                     self.da = array
             else:
                 if type(array.data) != dask.array.core.Array:
-                    print('here')
                     self.da = array.compute()
                 else:
                     self.da = array
-                
         else:
             
             if drop_dims is not None:
@@ -127,7 +127,6 @@ class Dataset:
                 
             if chunks is not None:
                 self.rechunk(chunks)
-        
         if not init:
             # Update history: Spatial collapse
             spatial_old = 'longitude' in old_coords and 'latitude' in old_coords
@@ -222,7 +221,7 @@ def _interact(array, inter):
 
 
 def from_path(path, var, engine, xycoords=('longitude', 'latitude'), time_sel=None, clip_geom=None,
-              time_fix=False, preprocess=None, name=None, chunks='auto', **kwargs):
+              time_fix=False, preprocess=None, name=None, **kwargs):
     if "*" in path:
         # array = xr.open_mfdataset(path, engine=engine, chunks=chunks,
         #                           preprocess=preprocess, **kwargs)[var]
@@ -233,7 +232,7 @@ def from_path(path, var, engine, xycoords=('longitude', 'latitude'), time_sel=No
                            parallel=True)[var]
     else:
         if engine == 'zarr':
-            array = xr.open_zarr(path, chunks=chunks, **kwargs)[var]
+            array = xr.open_zarr(path, **kwargs)[var]
         else:
             array = xr.open_dataset(path, engine=engine, **kwargs)[var]
         

@@ -79,7 +79,7 @@ def from_path(path, crop='corn', grid=None, write=False, name=None, feed=None):
         
         if name is not None:
             gdict['name'] = name
-            
+
         if feed is not None:
             gdict['feed'] = feed
             
@@ -113,9 +113,10 @@ def from_path(path, crop='corn', grid=None, write=False, name=None, feed=None):
         
     return weights     
 
-def from_name(name='cropland', crop='corn', grid=None, feed='total', write=False):
+def from_name(name='cropland', crop='corn', grid=None, feed=None, write=False):
     if name == 'cropland':
         path = "/home3/dth2133/data/cropland/2021_crop_mask.zarr"
+        name = None
         # preprocess = 
     elif name == 'GAEZ':
         path = f"/home3/dth2133/data/GAEZ/GAEZ_2015_all-crops_{feed}.nc"

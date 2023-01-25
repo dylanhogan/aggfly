@@ -103,6 +103,7 @@ def timefix(array, split_chunks=False):
         return array
 
 def clean_dims(da, xycoords):
+    
     da = da.rename({xycoords[0] : 'longitude', xycoords[1] : 'latitude'})
     return da.transpose('latitude', 'longitude', ...)
 

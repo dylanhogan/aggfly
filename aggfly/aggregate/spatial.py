@@ -83,16 +83,20 @@ def _avg(frame, weight, poly):
             for m in prange(frame.shape[3]):
                 for d in prange(frame.shape[4]):
                     for h in prange(frame.shape[5]):
-                        for l in prange(len(yl)):
-                            y = yl[l]
-                            x = xl[l]
-                            # I can't believe this was actually the solution
-                            # https://github.com/numba/numba/issues/2919
-                            if int(frame[y,x,a,m,d,h]) != -9223372036854775808:
-                                f = frame[y,x,a,m,d,h]
-                                w = weight[r,y,x]
-                                res[r,a,m,d,h] += f * w
-                                wes[r,a,m,d,h] += w
+                        if len(yl) == 0:
+                            res[r,a,m,d,h] = np.nan
+                            wes[r,a,m,d,h] = np.nan
+                        else:
+                            for l in prange(len(yl)):
+                                y = yl[l]
+                                x = xl[l]
+                                # I can't believe this was actually the solution
+                                # https://github.com/numba/numba/issues/2919
+                                if int(frame[y,x,a,m,d,h]) != -9223372036854775808:
+                                    f = frame[y,x,a,m,d,h]
+                                    w = weight[r,y,x]
+                                    res[r,a,m,d,h] += f * w
+                                    wes[r,a,m,d,h] += w
     out = res/wes
     return out.reshape((weight.shape[0],) + frame_shp[2:])
 

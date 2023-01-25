@@ -193,14 +193,14 @@ class GridWeights:
             data=weights.data,
             dims = ['region', 'latitude', 'longitude'],
             coords = dict(
-                latitude = (['latitude'], aw.lat.values),
-                longitude = (['longitude'], aw.lon.values),
-                region = (['region'], aw.region.values)
+                latitude = (['latitude'], weights.lat.values),
+                longitude = (['longitude'], weights.lon.values),
+                region = (['region'], weights.region.values)
             )   
         )
         
     # @lru_cache(maxsize=None)
-    def calculate_weighted_area_weights(self, data={}):
+    def calculate_weighted_area_weights(self, data={}, default_to_area_weights=True):
         
         if 'area_weights' not in data:
             aw = self.calculate_area_weights(data)
@@ -208,16 +208,25 @@ class GridWeights:
             aw = data['area_weights']
         
         dsw = self.raster_weights.raster
+        # dsw = np.nan_to_num(dsw, nan=0.000001)
+        
         wts = np.multiply(aw, dsw).data
+        
         da = xr.DataArray(
             data=wts,
             dims = ['region', 'latitude', 'longitude'],
             coords = dict(
-                latitude = (['latitude'], aw.lat.values),
-                longitude = (['longitude'], aw.lon.values),
+                latitude = (['latitude'], aw.latitude.values),
+                longitude = (['longitude'], aw.longitude.values),
                 region = (['region'], aw.region.values)
             )   
         )
+        
+        if default_to_area_weights:
+            w_sum = np.nansum(da.data.compute(), axis=(1,2))
+            # w_dims = (len(w_sum[w_sum == 0]),) + da.shape[1:3]
+            da[w_sum == 0,:,:] = aw[w_sum == 0,:,:]
+            
         return da    
     
     # @lru_cache(maxsize=None)
@@ -254,7 +263,7 @@ class GridWeights:
         border_centroids = self.border_centroids_to_cell()
         return gpd.GeoSeries(areas).plot(**kwargs)
 
-def from_objects(clim, georegions, crop='corn', name='cropland', feed='total', write=False, **kwargs):
+def from_objects(clim, georegions, crop='corn', name='cropland', feed=None, write=False, **kwargs):
     
     if crop is not None:
         raster_weights = crop_weights.from_name(
