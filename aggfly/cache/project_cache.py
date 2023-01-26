@@ -7,6 +7,7 @@ import json
 import glob
 import warnings
 import json
+from pprint import pformat
 
 import dill as pickle
 import numpy as np
@@ -19,6 +20,8 @@ import dask.array
 import rasterio
 from rasterio.enums import Resampling
 import rioxarray
+import pathlib
+import yaml
 
 class ProjectCache:
     
@@ -37,43 +40,57 @@ class ProjectCache:
         self.module_sha = f'mod-{generate_sha(self.module_dict)}'
         self.tmp_dir = f'{self.project_dir}/tmp/{self.module_name}/{self.module_sha}'
         
+        # If cache directory doesn't exist, create it
         if not os.path.exists(self.tmp_dir):
+            print(f"Creating new cache: {self.module_sha}")
             os.makedirs(self.tmp_dir)
-            with open(f"{self.tmp_dir}/mod.json", "w") as outfile:
-                json.dump(dictionary, outfile)
             
+            # This file summarizes parameters used to instance cache
+            with open(f"{self.tmp_dir}/mod.yaml", "w") as outfile:
+                yaml.dump(self.module_dict, outfile, default_flow_style=False)
+        
+        # Reset the cache quickly if needed
         if reset:
             self.reset()
     
-    def reset(self):     
+    def reset(self):
+        # Delete files in temp directory.
         files = glob.glob(f'{self.tmp_dir}/*')
         for f in files:
             os.remove(f)
     
     def uncache(self, obj_dict, extension='.nc'): 
+        # Generate unique ID for the object
         obj_sha = generate_sha(obj_dict)
-        file_name = f'{self.temp_dir}/{obj_sha}{extension}'
-        if exists(file_name):
-            return load(file_name)
-        else
+        file_name = f'{self.tmp_dir}/{obj_sha}'
+        
+        # Check if the unique ID exists and load; otherwise None.
+        if exists(f'{file_name}{extension}'):
+            return load(file_name, extension)
+        else:
             return None
         
     def cache(self, obj, obj_dict, extension='.nc', replace=False):
+        # Generate unique ID for the object
         obj_sha = generate_sha(obj_dict)
-        file_name = f'{self.temp_dir}/{obj_sha}{extension}'
-        if exists(file_name):
+        file_name = f'{self.tmp_dir}/{obj_sha}'
+        
+        # If it exists raise error unless expected; otherwise save
+        if exists(f'{file_name}{extension}'):
             if replace:
-                save(obj, file_name)
+                save(obj, file_name, extension)
             else:
                 raise RuntimeError(
                     "Cached file already exists! " +
                     "Set replace=True to overwrite")
-        else
-            save(obj, file_name)
+        else:
+            save(obj, file_name, extension)
+        with open(f"{file_name}.yaml", "w") as outfile:
+            yaml.dump(obj_dict, outfile, default_flow_style=False)
 
-def save(self, obj, file_name, extension):
+def save(obj, file_name, extension):
     if extension == '.nc':
-        obj.to_netcdf(file_name)
+        obj.to_netcdf(f'{file_name}.nc')
     elif name == 'Dataset':
         if 'xarray' in str(type(obj)):
             obj.to_netcdf(f'{file_name}.nc')
@@ -82,17 +99,19 @@ def save(self, obj, file_name, extension):
     else:
         pickle_save(obj, file_name)
 
-def load(self, file_name, extension):
+def load(file_name, extension):
     # name = type(obj).__name__
-    if extension == 'nc':
-        return xr.open_dataset(f'{file_name}.nc')
-    elif extension == 'pickle':
-        if 'xarray' in str(type(obj)):
-            return xr.open_dataset(f'{file_name}.nc')
+    if extension == '.nc':
+        ds = xr.open_dataset(f'{file_name}.nc')
+        varns = list(ds.keys())
+        if len(varns) == 1:
+            return ds[varns[0]].load()
         else:
-            return pickle_load(file_name)
+            return ds.load()
+    elif extension == 'pickle':
+        return pickle_load(file_name)
     else:
-        pickle_save(obj, file_name)
+        pickle_load(file_name)
     
 def generate_sha(in_dict, num=15):
     dump = json.dumps(str(in_dict),sort_keys=True).encode('utf8')
@@ -106,6 +125,24 @@ def pickle_load(file_name):
     with open(f'{file_name}.pickle', 'rb') as handle:
         b = pickle.load(handle)
     return b
+
+def initialize_cache(obj):
+        if obj.project_dir is not None:
+            return ProjectCache(
+                obj.project_dir,
+                type(obj),
+                obj.cdict()
+            )
+        else:
+            return None
+    
+def clean_object(obj):
+    out = {}
+    dic = obj.__dict__
+    for o in dic.keys():
+        if o != 'cache':
+            out[o] = str(dic[o])
+    return out
 
 # def get
 # def exists(obj_sha):

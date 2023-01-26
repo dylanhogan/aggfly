@@ -38,8 +38,7 @@ class Dataset:
         self.latitude = self.da.latitude
         assert np.all([x in list(self.coords) for x in 
             ['latitude', 'longitude']])
-        self.grid = Grid(self.longitude,
-                                self.latitude)       
+        self.grid = Grid(self.longitude, self.latitude, self.name)       
         self.history = []
         if clip_geom is not None:
             self.clip_data_to_georegions_extent(clip_geom)

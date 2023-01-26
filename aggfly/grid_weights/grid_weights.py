@@ -12,27 +12,40 @@ import dask.array
 import rasterio
 from rasterio.enums import Resampling
 import rioxarray
+from pprint import pformat, pprint
 
 from . import crop_weights
 from ..dataset import *
 from ..utils import *
+from ..cache import *
 
 class GridWeights:
     
-    def __init__(self, grid, georegions, raster_weights, chunks=None, ncpu=55):
+    def __init__(
+            self, 
+            grid,
+            georegions,
+            raster_weights,
+            chunks=None,
+            ncpu=55,
+            project_dir=None
+        ):
         
         self.grid = grid  
         self.georegions = georegions      
         self.grid.clip_grid_to_georegions_extent(georegions)
         self.raster_weights = raster_weights
         self.ncpu = ncpu
+        self.project_dir = project_dir
         if chunks is None:
             self.rchunk = max(int(len(self.georegions.regions)/ncpu), 1)
         else:
             self.rchunk = chunks
+        
+        self.cache = initialize_cache(self)
             
-    # @lru_cache(maxsize=None)
-    def mask(self, buffer=0, compute=True, chunks=None):
+    @lru_cache(maxsize=None)
+    def mask(self, buffer=0, compute=True, chunks='auto'):
             
         centroids = self.grid.centroids()
         fc = centroids.flatten()
@@ -109,9 +122,9 @@ class GridWeights:
     def border_centroids(self, buffers=None, output='mask'):
         if buffers is None:
             buffers = (-self.grid.resolution, self.grid.resolution)
+        
         m1 = self.mask(buffer = buffers[0])
         m2 = self.mask(buffer = buffers[1])
-        
         mborder = np.logical_and(np.logical_not(m1), m2)
         if output=='geo':
             return bool_array_to_geoseries(mborder)
@@ -143,6 +156,7 @@ class GridWeights:
                          for x in [-self.grid.resolution/2, self.grid.resolution/2]]
         latpoints = [dask.array.from_array(mlat + x, chunks=(self.rchunk, -1, -1))
                          for x in [-self.grid.resolution/2, self.grid.resolution/2]]
+        
         boxes = lonpoints[0].map_blocks(pygeos.box, latpoints[0], 
                                         lonpoints[1], latpoints[1], dtype=float)
         if return_boxes:
@@ -178,7 +192,7 @@ class GridWeights:
     def calculate_area_weights(self, data={}):
         
         if 'border_cells' not in data:
-            borders = self.border_centroids_to_cell(data=data, compute=False)
+            borders = self.border_centroids_to_cell(data=data, compute=True)
         else:
             borders = data['border_cells']
         
@@ -208,7 +222,6 @@ class GridWeights:
             aw = data['area_weights']
         
         dsw = self.raster_weights.raster
-        # dsw = np.nan_to_num(dsw, nan=0.000001)
         
         wts = np.multiply(aw, dsw).data
         
@@ -222,25 +235,58 @@ class GridWeights:
             )   
         )
         
+        # Something weird going on here
         if default_to_area_weights:
             w_sum = np.nansum(da.data.compute(), axis=(1,2))
             # w_dims = (len(w_sum[w_sum == 0]),) + da.shape[1:3]
+            da = da.compute()
+            aw = aw.compute()
             da[w_sum == 0,:,:] = aw[w_sum == 0,:,:]
             
         return da    
     
     # @lru_cache(maxsize=None)
-    def weights(self, data={}, chunk=None):
+    def weights(self, data={}, chunk=-1, verbose=False):
+        
+        # Set chunks
         if chunk is None:
             c = max([int(len(self.georegions.regions)/55),1])
             chunk = (c, -1, -1)
-        if self.raster_weights is None:
-            if 'area_weights' not in data:
-                return self.calculate_area_weights(data).chunk(chunk)
-            else:
-                return data['area_weights']
+        
+        gdict = {'func':'weights'} 
+        
+        # Load raster weights if needed
+        if self.raster_weights is not None:
+            self.raster_weights.rescale_raster_to_grid(self.grid, verbose=verbose)
+            gdict['raster_weights'] = dict(
+                path = self.raster_weights.path,
+                name = self.raster_weights.name,
+                crop = self.raster_weights.crop,
+                feed = self.raster_weights.feed
+            )
         else:
-            return self.calculate_weighted_area_weights(data).chunk(chunk)
+            gdict['raster_weights'] = None
+        
+        # Check to see if file is cached
+        if self.cache is not None:
+            cache = self.cache.uncache(gdict)
+        else:
+            cache = None
+            
+        if cache is not None:
+            print(f'Loading rescaled weights from cache')
+            if verbose:
+                print('Cache dictionary:')
+                pprint(gdict)
+            return cache.chunk(chunk)
+        else:
+            if self.raster_weights is None:
+                w = self.calculate_area_weights(data).chunk(chunk)
+            else:
+                w = self.calculate_weighted_area_weights(data).chunk(chunk)     
+            if self.cache is not None:
+                    self.cache.cache(w, gdict)
+            return w
     
     def plot_weights(self, region, buffer=0, **kwargs):
         mask = self.mask(buffer).sel(region=region)
@@ -262,16 +308,29 @@ class GridWeights:
     def plot_border_areas(self, region, **kwargs):
         border_centroids = self.border_centroids_to_cell()
         return gpd.GeoSeries(areas).plot(**kwargs)
+    
+    def cdict(self):
+        gdict = {
+            'grid':clean_object(self.grid),
+            'georegions': clean_object(self.georegions),
+            # 'georegions':{
+            #     'regions':str(self.georegions.regions),
+            #     'geometry':str(self.georegions.shp.geometry)
+            # },
+            'raster_weights':clean_object(self.raster_weights),
+        }
+        return gdict
 
-def from_objects(clim, georegions, crop='corn', name='cropland', feed=None, write=False, **kwargs):
+def from_objects(clim, georegions, crop='corn', name='cropland', feed=None, write=False, project_dir=None, **kwargs):
     
     if crop is not None:
         raster_weights = crop_weights.from_name(
-            name=name, crop=crop, grid=clim.grid, feed=feed, write=write)
+            name=name, crop=crop, feed=feed, write=write, project_dir=project_dir)
     else:
         raster_weights = None
     
-    return GridWeights(clim.grid, georegions, raster_weights, **kwargs)
+    return GridWeights(
+        clim.grid, georegions, raster_weights, project_dir=project_dir, **kwargs)
     
     
     

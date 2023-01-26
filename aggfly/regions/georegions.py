@@ -13,11 +13,13 @@ from .shp_utils import *
 
 class GeoRegions:
     
-    def __init__(self, shp=None, regionid='state', region_list=None):
+    def __init__(self, shp=None, regionid='state', region_list=None, name=None, path=None):
         self.shp = shp
         self.regions = self.shp[regionid]
         if region_list is not None:
             self.sel(region_list, update=True)
+        self.name = name
+        self.path = path
         
     # @lru_cache(maxsize=None)
     def poly_array(self, buffer=0, datatype='dask', chunks=1):
@@ -64,11 +66,11 @@ def from_path(path, regionid, region_list=None):
                       
 def from_name(name='usa', region_list=None):
     if name == 'usa':
-        return GeoRegions(open_usa_shp(), 'state', region_list)
+        return GeoRegions(open_usa_shp(), 'state', region_list, name=name)
     elif name == 'counties':
-        return GeoRegions(open_counties_shp(), 'fips', region_list)
+        return GeoRegions(open_counties_shp(), 'fips', region_list, name=name)
     elif name == 'global':
-        return GeoRegions(open_global_shp(), 'OBJECTID', region_list) 
+        return GeoRegions(open_global_shp(), 'OBJECTID', region_list, name=name) 
     else:
         raise NotImplementedError
     

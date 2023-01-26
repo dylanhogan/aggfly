@@ -13,9 +13,10 @@ from .grid_utils import *
 
 class Grid:
     
-    def __init__(self, longitude, latitude):
+    def __init__(self, longitude, latitude, name):
         self.longitude = longitude
         self.latitude = latitude
+        self.name = name
         self.resolution = self.get_resolution()
         self.cell_area = self.get_cell_area()
 
