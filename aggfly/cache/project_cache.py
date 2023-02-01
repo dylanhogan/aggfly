@@ -7,7 +7,7 @@ import json
 import glob
 import warnings
 import json
-from pprint import pformat
+from pprint import pformat, pprint
 
 import dill as pickle
 import numpy as np
@@ -39,10 +39,10 @@ class ProjectCache:
         self.module_dict = module_dict
         self.module_sha = f'mod-{generate_sha(self.module_dict)}'
         self.tmp_dir = f'{self.project_dir}/tmp/{self.module_name}/{self.module_sha}'
-        
+        print(self.tmp_dir)
         # If cache directory doesn't exist, create it
         if not os.path.exists(self.tmp_dir):
-            print(f"Creating new cache: {self.module_sha}")
+            print(f"Creating new cache ({self.module_sha}) in {self.tmp_dir}")
             os.makedirs(self.tmp_dir)
             
             # This file summarizes parameters used to instance cache
@@ -68,6 +68,8 @@ class ProjectCache:
         if exists(f'{file_name}{extension}'):
             return load(file_name, extension)
         else:
+            print(f"Cache file {file_name}{extension} not found.")
+            pprint(obj_dict)
             return None
         
     def cache(self, obj, obj_dict, extension='.nc', replace=False):

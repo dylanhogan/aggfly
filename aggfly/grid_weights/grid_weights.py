@@ -312,11 +312,11 @@ class GridWeights:
     def cdict(self):
         gdict = {
             'grid':clean_object(self.grid),
-            'georegions': clean_object(self.georegions),
-            # 'georegions':{
-            #     'regions':str(self.georegions.regions),
-            #     'geometry':str(self.georegions.shp.geometry)
-            # },
+            # 'georegions': clean_object(self.georegions),
+            'georegions':{
+                'regions':str(self.georegions.regions),
+                'geometry':str(self.georegions.shp.geometry)
+            },
             'raster_weights':clean_object(self.raster_weights),
         }
         return gdict

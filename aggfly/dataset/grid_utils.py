@@ -90,7 +90,6 @@ def timefix_era5l(array):
         array['day'] = array.time.dt.day
         array['hour'] = array.time.dt.hour
         array = array.set_index(time=("year", "month", "day", "hour")).unstack('time')
-        array = array - 273.15
     return array
 
 def timefix(array, split_chunks=False):
