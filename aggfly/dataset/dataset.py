@@ -1,3 +1,4 @@
+from copy import deepcopy
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -26,7 +27,7 @@ class Dataset:
         da = clean_dims(da, xycoords)
         if time_sel is not None:
             da = da.sortby('time').sel(time=time_sel)
-            time_fix=True
+            # time_fix=True
         if preprocess is not None:
             da = preprocess(da)
         
@@ -57,15 +58,26 @@ class Dataset:
         self.longitude = self.da.longitude
         self.latitude = self.da.latitude
                 
-    def clip_data_to_georegions_extent(self, georegions, split=False):
-        self.grid.clip_grid_to_georegions_extent(georegions)
-        self.clip_data_to_grid(split)
+    def clip_data_to_georegions_extent(self, georegions, split=False, update=True):
+        
+        if update:
+            self.grid.clip_grid_to_georegions_extent(georegions)
+            self.clip_data_to_grid(split)
+        else:
+            slf = self.deepcopy()
+            slf.grid.clip_grid_to_georegions_extent(georegions)
+            slf.clip_data_to_grid(split) 
+            return slf
         
     def clip_data_to_bbox(self, bounds, split=False):
         self.grid.clip_grid_to_bbox(bounds)
         self.clip_data_to_grid(split)
         
+    def compute(self, dask_array=True, chunks=None):
+        self.update(self.da.compute(), dask_array=dask_array, chunks=chunks)
         
+    def deepcopy(self):
+        return deepcopy(self)
         
     def update(self, array, drop_dims=None, new_dims=None, pos=0, dask_array=True, chunks=None, init=False):
         
@@ -124,21 +136,21 @@ class Dataset:
                     dims=ndims,
                     coords=cdict)
                 
-            if chunks is not None:
-                self.rechunk(chunks)
-        if not init:
-            # Update history: Spatial collapse
-            spatial_old = 'longitude' in old_coords and 'latitude' in old_coords
-            spatial_new = 'longitude' in self.da.coords and 'latitude' in self.da.coords
-            if spatial_old and not spatial_new:
-                self.history.append('spatial')
+            # if chunks is not None:
+            #     self.rechunk(chunks)
+            #         if not init:
+            #             # Update history: Spatial collapse
+            #             spatial_old = 'longitude' in old_coords and 'latitude' in old_coords
+            #             spatial_new = 'longitude' in self.da.coords and 'latitude' in self.da.coords
+            #             if spatial_old and not spatial_new:
+            #                 self.history.append('spatial')
 
-            # Update history: Temporal collapse
-            temp_dims = [x for x in old_coords if x in ['year','month','day','hour']]
-            new_temp_dims = [x for x in self.da.coords if x in ['year','month','day','hour']]
-            temp_dims_changed = not np.array_equiv(temp_dims, new_temp_dims)
-            if temp_dims_changed:
-                self.history.append('temporal')
+            #             # Update history: Temporal collapse
+            #             temp_dims = [x for x in old_coords if x in ['year','month','day','hour']]
+            #             new_temp_dims = [x for x in self.da.coords if x in ['year','month','day','hour']]
+            #             temp_dims_changed = not np.array_equiv(temp_dims, new_temp_dims)
+            #             if temp_dims_changed:
+            #                 self.history.append('temporal')
         
     @lru_cache(maxsize=None)
     def interior_cells(self, georegions, buffer=None, dtype='georegions', maxsize=None):
@@ -192,10 +204,16 @@ class Dataset:
             da = da.sel(d).expand_dims(k).transpose(*self.da.dims)
         self.update(da)
             
-    def power(self, exp):
-        arr = self.da.data.map_blocks(_power, exp) 
-        self.update(arr)
-        self.history.append(f'power{exp}')
+    def power(self, exp, update=False):
+        arr = self.da.data.map_blocks(_power, exp)
+        if update:
+            self.update(arr)
+            self.history.append(f'power{exp}')
+        else:
+            slf = self.deepcopy()
+            slf.update(arr)
+            slf.history.append(f'power{exp}')
+            return(slf)
         
     def interact(self, inter):
         
@@ -220,15 +238,23 @@ def _interact(array, inter):
 
 
 def from_path(path, var, engine, xycoords=('longitude', 'latitude'), time_sel=None, clip_geom=None,
-              time_fix=False, preprocess=None, name=None, **kwargs):
-    if "*" in path:
+              time_fix=False, preprocess=None, name=None, chunks=None, **kwargs):
+    if "*" in path or type(path) is list:
         # array = xr.open_mfdataset(path, engine=engine, chunks=chunks,
         #                           preprocess=preprocess, **kwargs)[var]
         with dask.config.set(**{'array.slicing.split_large_chunks': False}): 
-            array = xr.open_mfdataset(path,
-                           engine=engine, 
-                           preprocess=preprocess,
-                           parallel=True)[var]
+            array = xr.open_mfdataset(
+                path,
+                engine=engine, 
+                preprocess=preprocess,
+                parallel=True,
+                **kwargs
+            )[var]
+            
+            # if chunks is not None:
+            #     array = array.chunk(chunks)
+            
+            
     else:
         if engine == 'zarr':
             array = xr.open_zarr(path, **kwargs)[var]
@@ -246,7 +272,8 @@ def from_path(path, var, engine, xycoords=('longitude', 'latitude'), time_sel=No
         preprocess=preprocess,
         clip_geom=clip_geom,
         time_fix=time_fix,
-        name=name)
+        name=name
+    )
     
 def from_name(name, var, chunks='auto', **kwargs):
     # if name == 'prism':

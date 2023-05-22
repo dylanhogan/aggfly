@@ -16,15 +16,16 @@ class Grid:
     def __init__(self, longitude, latitude, name):
         self.longitude = longitude
         self.latitude = latitude
+        self.lon_array, self.lat_array = np.meshgrid(self.longitude, self.latitude)
+        self.index = np.indices(self.lon_array.flatten().shape).reshape(self.lon_array.shape)
         self.name = name
         self.resolution = self.get_resolution()
         self.cell_area = self.get_cell_area()
 
 
     @lru_cache(maxsize=None)
-    def centroids(self, datatype='dask', chunks=30):
-        longitude, latitude = np.meshgrid(self.longitude, self.latitude)
-        centroids = reformat_grid(longitude, latitude, datatype, chunks)
+    def centroids(self, datatype='points', chunks=30):
+        centroids = reformat_grid(self.lon_array, self.lat_array, datatype, chunks)
         return centroids
     
     def get_resolution(self):
@@ -54,6 +55,8 @@ class Grid:
         
         self.longitude = self.longitude[inlon]
         self.latitude = self.latitude[inlat]
+        self.lon_array, self.lat_array = np.meshgrid(self.longitude, self.latitude)
+        self.index = np.indices(self.lon_array.flatten().shape).reshape(self.lon_array.shape)
     
     @lru_cache(maxsize=None)
     def mask(self, georegions, buffer=0, chunksize=100, compute=True):
@@ -78,11 +81,38 @@ class Grid:
         else:
             return mask 
         
+    @lru_cache(maxsize=None)
+    def mask(self, buffer=0):
+            
+        centroids = self.grid.centroids()
+        fc = gpd.GeoDataFrame(geometry=centroids.flatten()).set_crs('EPSG:4326')
+        
+        # fc = fc.rechunk(chunks)[...,None]
+        fc = dask_geopandas.from_geopandas(fc, npartitions=self.chunks)
+        
+        if self.simplify is not None:
+            georegions = self.simplify_poly_array()
+        else:
+            georegions = self.georegions
+        
+        poly_array = georegions.poly_array(buffer, chunks=self.chunks).squeeze()
+            
+        poly_shp = poly_array.shape
+        poly_array = dask_geopandas.from_geopandas(
+            gpd.GeoDataFrame(geometry=poly_array),
+            npartitions=1)
+        
+        # mask = fc.map_blocks(pygeos.within, poly_array, dtype=bool)
+        mask = fc.sjoin(poly_array, predicate='within').compute()
+        
+        return mask 
+    
     def centroids_to_cell(self, georegions, buffer=0, chunksize=100, datatype='xarray', 
                           compute=True, intersect_cells=False): 
         
         # Generate dask array of geometries
-        pol = (georegions.poly_array(buffer=buffer).rechunk((chunksize, -1, -1)))
+        pol = (georegions.poly_array(buffer=buffer))
+        print(pol)
         
         # Generate mask array contining T/F for centroids within (buffered) geometry
         msk = self.mask(georegions, buffer=buffer)

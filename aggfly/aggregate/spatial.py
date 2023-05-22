@@ -1,5 +1,6 @@
 from functools import lru_cache, partial
 from copy import deepcopy
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -20,11 +21,18 @@ from ..dataset.dataset import Dataset
 
 class SpatialAggregator:
     
-    def __init__(self, calc, poly=1):
-        self.calc = calc
+    def __init__(self, clim, weights, grid, names='climate'):
+        self.clim = clim
+        self.grid = grid
         # self.agg_from = agg_from
-        self.poly = poly
-        self.func = self.assign_func()
+        self.weights = weights
+        self.names=names
+        # self.func = self.assign_func()
+        self.weighted_mean = dask.dataframe.Aggregation(
+            name='weighted_mean',
+            chunk=process_chunk,
+            agg=agg,
+            finalize=finalize)
     
     def assign_func(self):
         if self.calc == 'avg':
@@ -36,69 +44,93 @@ class SpatialAggregator:
         # return **kwargs
         return self.func(arr, weight, *self.args, **kwargs)
     
-    def map_execute(self, clim, weights, update=False, **kwargs):
-
-        if update == False:
-            clim = deepcopy(clim)
+    def compute(self, npartitions=30):
         
-        if type(clim) == Dataset:
-            da = clim.da.data
-            # da.rechunk(-1)
+        if type(self.clim) == list:
+            clim_ds = dask.compute([x.da for x in self.clim])[0]
+            clim_ds = xr.combine_by_coords(
+                [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]
+            )
+            
+            clim_df = (clim_ds
+                .stack({'cell_id':['latitude', 'longitude']})
+                .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
+                .to_dataframe()
+                .reset_index('time')
+            )
         else:
-            da = clim
-            # da.rechunk(-1)
+            if type(self.clim) == xr.core.dataarray.DataArray:
+                clim_ds = self.clim
+            else:
+                if type(self.clim.da) == xr.core.dataarray.DataArray:
+                    clim_ds = self.clim.da.compute()
+                else:
+                    clim_ds = self.clim.da
 
-#         if type(weights) == xr.core.dataarray.DataArray:
-#             weights.chunk(-1)
-#         else:
-#             weights.rechunk(-1)
+                clim_df = (clim_ds
+                    .stack({'cell_id':['latitude', 'longitude']})
+                    .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
+                    .to_dataframe(name=self.names)
+                    .reset_index('time')
+                )
 
-    
-        out = da.map_blocks(
-                self.execute,
-                weights.data,
-                dtype=float,
-                drop_axis=[0,1],
-                new_axis=0,
-                chunks=(weights.data.chunks[0:1]+da.chunks[2:]))
-        
-        clim.update(
-            out,
-            drop_dims=['latitude', 'longitude'],
-            new_dims={'region': weights.region.values})
-        return clim
+        self.weights['region_id'] = self.weights.index_right
+        ddw = dask.dataframe.from_pandas(self.weights.set_index('index_right'), npartitions=npartitions)
+
+        merged_df = ddw.merge(clim_df, how='inner', on='cell_id')
+        merged_df = merged_df.dropna(subset=self.names)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            aggregated = (merged_df[['region_id', 'time', 'weight', *self.names]]
+                .groupby(['region_id', 'time'])
+                .apply(weighted, self.names)).compute()
+        aggregated = aggregated.sort_values(['region_id', 'time'])
+            
+        return aggregated
     
 
 @numba.njit(fastmath=True, parallel=True)
 def _avg(frame, weight, poly):
 
     frame_shp = frame.shape
-    frame = nb_expander(frame)
     res = np.zeros((weight.shape[0],) + frame.shape[2:], dtype=np.float64)
     wes = np.zeros((weight.shape[0],) + frame.shape[2:], dtype=np.float64)
     for r in prange(weight.shape[0]):
         # print(r)
         yl, xl = np.nonzero(weight[r,:,:])
-        for a in prange(frame.shape[2]):
-            for m in prange(frame.shape[3]):
-                for d in prange(frame.shape[4]):
-                    for h in prange(frame.shape[5]):
-                        if len(yl) == 0:
-                            res[r,a,m,d,h] = np.nan
-                            wes[r,a,m,d,h] = np.nan
-                        else:
-                            for l in prange(len(yl)):
-                                y = yl[l]
-                                x = xl[l]
-                                # I can't believe this was actually the solution
-                                # https://github.com/numba/numba/issues/2919
-                                if int(frame[y,x,a,m,d,h]) != -9223372036854775808:
-                                    f = frame[y,x,a,m,d,h]
-                                    w = weight[r,y,x]
-                                    res[r,a,m,d,h] += f * w
-                                    wes[r,a,m,d,h] += w
+        for t in prange(frame.shape[2]):
+            if len(yl) == 0:
+                res[r,a,m,d,h] = np.nan
+                wes[r,a,m,d,h] = np.nan
+            else:
+                for l in prange(len(yl)):
+                    y = yl[l]
+                    x = xl[l]
+                    # I can't believe this was actually the solution
+                    # https://github.com/numba/numba/issues/2919
+                    if int(frame[y,x,a,m,d,h]) != -9223372036854775808:
+                        f = frame[y,x,a,m,d,h]
+                        w = weight[r,y,x]
+                        res[r,a,m,d,h] += f * w
+                        wes[r,a,m,d,h] += w
     out = res/wes
     return out.reshape((weight.shape[0],) + frame_shp[2:])
+
+def process_chunk(chunk):
+    def weighted_func(df):
+        # print(df)
+        return (df["weight"] * df["climate"]).sum()
+    return (chunk.apply(weighted_func), chunk.sum()["weight"])
+        
+def agg(total, weights):
+    return (total.sum(), weights.sum())
+
+def finalize(total, weights):
+    return total / weights
+
+def weighted(x, cols, w="weight"):
+    return pd.Series(np.average(x[cols], weights=x[w], axis=0), cols)
 
 def from_name(name='era5l',
               calc=('avg', 1)):

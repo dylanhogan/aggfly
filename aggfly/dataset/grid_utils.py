@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
-import pygeos
+import shapely
 import os
 import dask
 import dask.array
@@ -42,18 +42,18 @@ def era5l_grid_centroids(datatype='array', chunks=30, usa=False):
 
 def reformat_grid(longitude, latitude, datatype='array', chunks=30):
     if datatype=='points':
-        centroids = pygeos.points(longitude, y=latitude)
+        centroids = shapely.points(longitude, y=latitude)
     elif datatype=='dask':
         if type(longitude) is not dask.array.core.Array:
             longitude, latitude = [dask.array.from_array(x, chunks='auto') 
                           for x in [longitude, latitude]]
-        centroids = longitude.map_blocks(pygeos.points, y=latitude, dtype=float)
+        centroids = longitude.map_blocks(shapely.points, y=latitude, dtype=float)
         centroids = centroids.rechunk(autochunk(centroids))
     elif datatype=='xarray':
         if type(longitude) is not dask.array.core.Array:
             longitude, latitude = [dask.array.from_array(x, chunks='auto') 
                           for x in [longitude, latitude]]
-        centroids = longitude.map_blocks(pygeos.points, y=latitude, dtype=float)
+        centroids = longitude.map_blocks(shapely.points, y=latitude, dtype=float)
         centroids = centroids.rechunk(autochunk(centroids)) 
         return xr.DataArray(
             data = centroids,
@@ -102,7 +102,7 @@ def timefix(array, split_chunks=False):
         return array
 
 def clean_dims(da, xycoords):
-    
-    da = da.rename({xycoords[0] : 'longitude', xycoords[1] : 'latitude'})
+    if xycoords != ('longitude', 'latitude'):
+        da = da.rename({xycoords[0] : 'longitude', xycoords[1] : 'latitude'})
     return da.transpose('latitude', 'longitude', ...)
 

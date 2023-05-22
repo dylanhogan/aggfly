@@ -93,6 +93,8 @@ class ProjectCache:
 def save(obj, file_name, extension):
     if extension == '.nc':
         obj.to_netcdf(f'{file_name}.nc')
+    elif extension == '.feather':
+        obj.to_feather(f'{file_name}.feather')
     elif name == 'Dataset':
         if 'xarray' in str(type(obj)):
             obj.to_netcdf(f'{file_name}.nc')
@@ -110,6 +112,8 @@ def load(file_name, extension):
             return ds[varns[0]].load()
         else:
             return ds.load()
+    elif extension == '.feather':
+        return pd.read_feather(f'{file_name}.feather')
     elif extension == 'pickle':
         return pickle_load(file_name)
     else:

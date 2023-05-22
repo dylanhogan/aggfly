@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
-import pygeos
+# import pygeos
 import geopandas as gpd
 from functools import lru_cache
 

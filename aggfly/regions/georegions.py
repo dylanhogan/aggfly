@@ -1,13 +1,15 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
-import pygeos
+# import pygeos
 import geopandas as gpd
+import dask_geopandas
 import os
 import dask
 import dask.array
 from functools import lru_cache
 from copy import deepcopy
+import warnings
 
 from .shp_utils import *
 
@@ -22,14 +24,20 @@ class GeoRegions:
         self.path = path
         
     # @lru_cache(maxsize=None)
-    def poly_array(self, buffer=0, datatype='dask', chunks=1):
-        poly = pygeos.from_shapely(self.shp.geometry)
+    def poly_array(self, buffer=0, datatype='array', chunks=20):
+        
+        # poly = pygeos.from_shapely(self.shp.geometry)
         if buffer != 0:
             # bufferPoly = pygeos.buffer(poly, buffer)
-            dask_poly = dask.array.from_array(poly, chunks=int(len(poly) / 50))
-            bufferPoly = dask_poly.map_blocks(pygeos.buffer, buffer, dtype=type(poly[0])).compute()
+            # print(len(poly))
+            # dask_poly = dask.array.from_array(poly, chunks=max(int(len(poly) / 50), 1))
+            # bufferPoly = dask_poly.map_blocks(pygeos.buffer, buffer, dtype=type(poly[0])).compute()
+            ddf = dask_geopandas.from_geopandas(self.shp, npartitions=chunks)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                bufferPoly = ddf.buffer(buffer).compute()
         else:
-            bufferPoly = poly
+            bufferPoly = self.shp.geometry
             
         if datatype=='dask':
             ar = (dask.array
