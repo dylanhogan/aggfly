@@ -17,7 +17,8 @@ class GeoRegions:
     
     def __init__(self, shp=None, regionid='state', region_list=None, name=None, path=None):
         self.shp = shp
-        self.regions = self.shp[regionid]
+        self.regionid = regionid
+        self.regions = self.shp[self.regionid]
         if region_list is not None:
             self.sel(region_list, update=True)
         self.name = name

@@ -39,7 +39,7 @@ class CropWeights:
         self.project_dir = project_dir
         self.cache = initialize_cache(self)
  
-    def rescale_raster_to_grid(self, grid, verbose=False):
+    def rescale_raster_to_grid(self, grid, verbose=False, resampling=Resampling.average, nodata=0, return_raw=False):
         
         gdict = {
             'func':'rescale_raster_to_grid',
@@ -85,7 +85,10 @@ class CropWeights:
             weights = xr.apply_ufunc(np.single, 
                     self.raster, dask='parallelized')
             
-            dsw = weights.rio.reproject_match(g, nodata=0, resampling=Resampling.average)
+            dsw = weights.rio.reproject_match(g, nodata=nodata, resampling=resampling)
+            
+            if return_raw:
+                return dsw.values.squeeze()
             
             self.raster = xr.DataArray(data=dsw.values.squeeze(),
                                 dims=template.dims, 
@@ -122,6 +125,7 @@ def from_name(name='cropland', crop='corn', grid=None, feed=None, write=False, p
         crs = 'EPSG:5070'
     elif name == 'GAEZ':
         path = f"/home3/dth2133/data/GAEZ/GAEZ_2015_all-crops_{feed}.nc"
+        
     else:
         raise NotImplementedError
     return from_path(path, 

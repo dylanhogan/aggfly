@@ -79,7 +79,7 @@ class Dataset:
     def deepcopy(self):
         return deepcopy(self)
         
-    def update(self, array, drop_dims=None, new_dims=None, pos=0, dask_array=True, chunks=None, init=False):
+    def update(self, array, drop_dims=None, new_dims=None, pos=0, dask_array=True, chunks='auto', init=False):
         
         if not init:
             old_coords = self.da.coords
@@ -91,7 +91,7 @@ class Dataset:
             if dask_array:
                 if type(array.data) != dask.array.core.Array:
                     self.da = xr.DataArray(
-                        data = dask.array.from_array(array.data),
+                        data = dask.array.from_array(array.data, chunks=chunks),
                         dims = array.dims,
                         coords = array.coords)
                 else:
@@ -259,7 +259,7 @@ def from_path(path, var, engine, xycoords=('longitude', 'latitude'), time_sel=No
         if engine == 'zarr':
             array = xr.open_zarr(path, **kwargs)[var]
         else:
-            array = xr.open_dataset(path, engine=engine, **kwargs)[var]
+            array = xr.open_dataset(path, engine=engine, **kwargs)[var].load()
         
         # if time_sel is not None:
         #     array = array.sortby('time').sel(time=time_sel)

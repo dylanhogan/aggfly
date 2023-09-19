@@ -165,11 +165,12 @@ class GridWeights:
         area_weights = self.get_area_weights()
             
         raster_weights = self.raster_weights.raster.to_dataframe(name='raster_weight')
+        
         w = area_weights.merge(
             raster_weights,
             how='left',
             left_on=['latitude', 'longitude'],
-            right_index=True
+            right_on=['lat', 'lon']
         )
         
         # Parallelize

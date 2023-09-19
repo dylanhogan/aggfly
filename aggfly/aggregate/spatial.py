@@ -22,7 +22,10 @@ from ..dataset.dataset import Dataset
 class SpatialAggregator:
     
     def __init__(self, clim, weights, grid, names='climate'):
-        self.clim = clim
+        if type(clim) != list:
+            self.clim = [self.clim]
+        else:
+            self.clim = clim
         self.grid = grid
         # self.agg_from = agg_from
         self.weights = weights
@@ -46,37 +49,34 @@ class SpatialAggregator:
     
     def compute(self, npartitions=30):
         
-        if type(self.clim) == list:
-            clim_ds = dask.compute([x.da for x in self.clim])[0]
-            clim_ds = xr.combine_by_coords(
-                [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]
-            )
-            
-            clim_df = (clim_ds
-                .stack({'cell_id':['latitude', 'longitude']})
-                .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
-                .to_dataframe()
-                .reset_index('time')
-            )
-        else:
-            if type(self.clim) == xr.core.dataarray.DataArray:
-                clim_ds = self.clim
-            else:
-                if type(self.clim.da) == xr.core.dataarray.DataArray:
-                    clim_ds = self.clim.da.compute()
-                else:
-                    clim_ds = self.clim.da
 
-                clim_df = (clim_ds
-                    .stack({'cell_id':['latitude', 'longitude']})
-                    .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
-                    .to_dataframe(name=self.names)
-                    .reset_index('time')
-                )
+        clim_ds = dask.compute([x.da for x in self.clim])[0]
+        clim_ds = xr.combine_by_coords(
+            [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]
+        )
 
+        clim_df = (clim_ds
+            .stack({'cell_id':['latitude', 'longitude']})
+            .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
+            .to_dataframe()
+            .reset_index('time')
+        )
+        # else:
+        #     if type(self.clim) == xr.core.dataarray.DataArray:
+        #         clim_ds = self.clim
+        #     else:
+        #         if type(self.clim.da) == xr.core.dataarray.DataArray:
+        #             clim_ds = self.clim.da.compute()
+        #         else:
+        #             clim_ds = self.clim.da
+        #         clim_df = (clim_ds
+        #             .stack({'cell_id':['latitude', 'longitude']})
+        #             .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
+        #             .to_dataframe(name=self.names)
+        #             .reset_index('time')
+        #         )
         self.weights['region_id'] = self.weights.index_right
         ddw = dask.dataframe.from_pandas(self.weights.set_index('index_right'), npartitions=npartitions)
-
         merged_df = ddw.merge(clim_df, how='inner', on='cell_id')
         merged_df = merged_df.dropna(subset=self.names)
 
