@@ -89,6 +89,7 @@ clim = dataset.from_path(
     var = 't2m',
     engine = 'netcdf4',
     name='era5',
+    clip_geom=georegions,
     preprocess = preprocess_era5l)
 
 # Calculate area and pop layer weights.
@@ -100,7 +101,7 @@ weights = grid_weights.from_objects(
     project_dir=project_dir)
 
 
-clim.clip_data_to_georegions_extent(georegions)
+# clim.clip_data_to_georegions_extent(georegions)
 
 print("Loading weights")
 w = weights.weights()
@@ -136,6 +137,7 @@ clim = dataset.from_path(
     var = 't2m',
     engine = 'netcdf4',
     name='era5',
+    clip_geom=georegions,
     preprocess = preprocess_era5l)
 clim.update(clim.da.persist())
 
