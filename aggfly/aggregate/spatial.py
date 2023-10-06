@@ -54,27 +54,15 @@ class SpatialAggregator:
         clim_ds = xr.combine_by_coords(
             [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]
         )
-
+        
         clim_df = (clim_ds
             .stack({'cell_id':['latitude', 'longitude']})
+            .drop_vars(['cell_id', 'latitude', 'longitude'])
             .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
             .to_dataframe()
             .reset_index('time')
         )
-        # else:
-        #     if type(self.clim) == xr.core.dataarray.DataArray:
-        #         clim_ds = self.clim
-        #     else:
-        #         if type(self.clim.da) == xr.core.dataarray.DataArray:
-        #             clim_ds = self.clim.da.compute()
-        #         else:
-        #             clim_ds = self.clim.da
-        #         clim_df = (clim_ds
-        #             .stack({'cell_id':['latitude', 'longitude']})
-        #             .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
-        #             .to_dataframe(name=self.names)
-        #             .reset_index('time')
-        #         )
+
         self.weights['region_id'] = self.weights.index_right
         ddw = dask.dataframe.from_pandas(self.weights.set_index('index_right'), npartitions=npartitions)
         merged_df = ddw.merge(clim_df, how='inner', on='cell_id')

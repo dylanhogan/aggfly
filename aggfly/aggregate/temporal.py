@@ -105,8 +105,9 @@ class TemporalAggregator:
         )
         out = out.rename({out.dims[-1]:'time'})
         if type(out.time.values[0]) == datetime.date:
-            out['time'] = [np.datetime64(x) for x in out.time.values]
+            out['time'] = [np.datetime64(x, 'ns') for x in out.time.values]
         
+        # return out
         # Update object and return result
         if type(clim) == Dataset:
             clim.update(out)
