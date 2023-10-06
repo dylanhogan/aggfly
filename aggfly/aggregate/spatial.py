@@ -49,7 +49,7 @@ class SpatialAggregator:
     
     def compute(self, npartitions=30):
         
-
+        print('COMPUTING')
         clim_ds = dask.compute([x.da for x in self.clim])[0]
         clim_ds = xr.combine_by_coords(
             [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]
@@ -61,19 +61,38 @@ class SpatialAggregator:
             .assign_coords(coords={'cell_id':('cell_id', self.grid.index.flatten())})
             .to_dataframe()
             .reset_index('time')
+            .dropna(subset=self.names)
         )
-
+        
         self.weights['region_id'] = self.weights.index_right
-        ddw = dask.dataframe.from_pandas(self.weights.set_index('index_right'), npartitions=npartitions)
-        merged_df = ddw.merge(clim_df, how='inner', on='cell_id')
+        merged_df = clim_df.merge(self.weights, how='inner', on='cell_id')
         merged_df = merged_df.dropna(subset=self.names)
+        
+        group_key = ( merged_df[['region_id', 'time']]
+            .drop_duplicates()
+            .reset_index(drop=True)
+            .reset_index()
+            .rename(columns={'index':'group_ID'})
+        )        
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            aggregated = (merged_df[['region_id', 'time', 'weight', *self.names]]
-                .groupby(['region_id', 'time'])
-                .apply(weighted, self.names)).compute()
-        aggregated = aggregated.sort_values(['region_id', 'time'])
+        merged_df = ( merged_df
+             .merge(group_key, on=['region_id', 'time'])
+             .set_index('group_ID')[['weight', *self.names]]
+        )
+        
+        ddf = dask.dataframe.from_pandas(merged_df, npartitions=50)
+        
+        out = ddf[self.names].mul(ddf['weight'], axis=0)
+        out['weight'] = ddf['weight']
+        out = out.groupby(out.index).sum()
+        out = out[self.names].div(out['weight'], axis=0)
+        
+        aggregated = (out
+            .merge(group_key, how='right', left_index=True, right_on='group_ID')
+            .compute()
+            .reset_index(drop=True)
+            .drop(columns='group_ID')[['region_id', 'time'] + self.names]
+        )
             
         return aggregated
     
