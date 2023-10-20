@@ -136,21 +136,6 @@ class Dataset:
                     dims=ndims,
                     coords=cdict)
                 
-            # if chunks is not None:
-            #     self.rechunk(chunks)
-            #         if not init:
-            #             # Update history: Spatial collapse
-            #             spatial_old = 'longitude' in old_coords and 'latitude' in old_coords
-            #             spatial_new = 'longitude' in self.da.coords and 'latitude' in self.da.coords
-            #             if spatial_old and not spatial_new:
-            #                 self.history.append('spatial')
-
-            #             # Update history: Temporal collapse
-            #             temp_dims = [x for x in old_coords if x in ['year','month','day','hour']]
-            #             new_temp_dims = [x for x in self.da.coords if x in ['year','month','day','hour']]
-            #             temp_dims_changed = not np.array_equiv(temp_dims, new_temp_dims)
-            #             if temp_dims_changed:
-            #                 self.history.append('temporal')
         
     @lru_cache(maxsize=None)
     def interior_cells(self, georegions, buffer=None, dtype='georegions', maxsize=None):
@@ -237,34 +222,42 @@ def _interact(array, inter):
 
 
 
-def from_path(path, var, engine, xycoords=('longitude', 'latitude'), time_sel=None, clip_geom=None,
-              time_fix=False, preprocess=None, name=None, chunks=None, **kwargs):
+def from_path(
+        path, 
+        var,
+        xycoords=('longitude', 'latitude'), 
+        time_sel=None, 
+        clip_geom=None,
+        time_fix=False, 
+        preprocess=None, 
+        name=None, 
+        chunks={
+            'time':'auto',
+            'latitude':-1,
+            'longitude':-1
+        }, 
+        **kwargs
+    ):
+    
     if "*" in path or type(path) is list:
-        # array = xr.open_mfdataset(path, engine=engine, chunks=chunks,
-        #                           preprocess=preprocess, **kwargs)[var]
+
         with dask.config.set(**{'array.slicing.split_large_chunks': False}): 
             array = xr.open_mfdataset(
-                path,
-                engine=engine, 
+                path, 
                 preprocess=preprocess,
                 parallel=True,
+                chunks=chunks,
                 **kwargs
             )[var]
             
-            # if chunks is not None:
-            #     array = array.chunk(chunks)
-            
-            
+            preprocess=None
+    
     else:
-        if engine == 'zarr':
-            array = xr.open_zarr(path, **kwargs)[var]
+        if '.zarr' in path:
+            array = xr.open_zarr(path, chunks=chunks, **kwargs)[var]
         else:
-            array = xr.open_dataset(path, engine=engine, **kwargs)[var].load()
-        
-        # if time_sel is not None:
-        #     array = array.sortby('time').sel(time=time_sel)
-        # if preprocess is not None:
-        #     array = preprocess(array)
+            array = xr.open_dataset(path, chunks=chunks, **kwargs)[var]
+            
     return Dataset(
         array,
         xycoords=xycoords,

@@ -57,7 +57,7 @@ class GeoRegions:
         return geo.boundary.plot(**kwargs)
     
     def sel(self, region_list, update=False):
-
+        region_list = [region_list] if isinstance(region_list, str) else region_list
         if update:
             shp = self
         else:
@@ -66,7 +66,7 @@ class GeoRegions:
         m = np.in1d(shp.regions, region_list)
         shp.shp = shp.shp[m]
         shp.regions = shp.regions[m] 
-        
+        shp.shp = shp.shp.reset_index(drop=True)
         return shp
     
 def from_path(path, regionid, region_list=None):
