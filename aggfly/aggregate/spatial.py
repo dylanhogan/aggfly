@@ -21,15 +21,15 @@ from ..dataset.dataset import Dataset
 
 class SpatialAggregator:
     
-    def __init__(self, clim, weights, grid, names='climate'):
+    def __init__(self, clim, weights, names='climate'):
         if type(clim) != list:
-            self.clim = [self.clim]
+            self.clim = [clim]
         else:
             self.clim = clim
-        self.grid = grid
+        self.grid = weights.grid
         # self.agg_from = agg_from
-        self.weights = weights
-        self.names=names
+        self.weights = weights.weights
+        self.names= [names] if isinstance(names, str) else names
         # self.func = self.assign_func()
         self.weighted_mean = dask.dataframe.Aggregation(
             name='weighted_mean',
@@ -74,7 +74,7 @@ class SpatialAggregator:
             .reset_index()
             .rename(columns={'index':'group_ID'})
         )        
-
+        
         merged_df = ( merged_df
              .merge(group_key, on=['region_id', 'time'])
              .set_index('group_ID')[['weight', *self.names]]
