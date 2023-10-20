@@ -19,8 +19,8 @@ import zarr
 from .aggregate_utils import *
 from ..dataset.dataset import Dataset
 
+
 class TemporalAggregator:
-    
     def __init__(self, calc, groupby, poly=1, ddargs=None):
         self.calc = calc
         self.groupby = groupby
@@ -29,44 +29,44 @@ class TemporalAggregator:
         self.poly = poly
         self.ddargs = self.get_ddargs(ddargs)
         self.func = self.assign_func()
-    
+
     def assign_func(self):
-        if self.calc == 'avg':
+        if self.calc == "avg":
             f = _avg
             self.args = (self.poly,)
-            self.input_core_dims = (['time'],['y'],['x'])
-        if self.calc == 'sum':
+            self.input_core_dims = (["time"], ["y"], ["x"])
+        if self.calc == "sum":
             f = _sum
             self.args = (self.poly,)
-            self.input_core_dims = (['time'],['y'],['x'])
-        elif self.calc == 'dd':
+            self.input_core_dims = (["time"], ["y"], ["x"])
+        elif self.calc == "dd":
             # if isinstance(self.ddargs[0], list):
             #     f = _dd_multi
             #     self.args = (self.poly, *self.ddargs)
             # else:
             f = _dd
             self.args = (self.poly, self.ddargs)
-            self.input_core_dims = (['time'],['y'],['x'])
-        elif self.calc == 'time':
+            self.input_core_dims = (["time"], ["y"], ["x"])
+        elif self.calc == "time":
             f = _time
             self.args = (self.poly, self.ddargs)
-            self.input_core_dims = (['time'],['y'],['x'])
-        elif self.calc == 'sine-dd':
+            self.input_core_dims = (["time"], ["y"], ["x"])
+        elif self.calc == "sine-dd":
             f = _sine_dd
             self.args = (self.poly, *self.ddargs)
-            self.input_core_dims = (['time'],['y'],['x'])
-        elif self.calc == 'sine-time':
+            self.input_core_dims = (["time"], ["y"], ["x"])
+        elif self.calc == "sine-time":
             f = _sine_time
             self.args = (self.poly, *self.ddargs)
-            self.input_core_dims = (['time'],['y'],['x'])
-        if self.calc == 'min':
+            self.input_core_dims = (["time"], ["y"], ["x"])
+        if self.calc == "min":
             f = _min
             self.args = (self.poly,)
-            self.input_core_dims = (['time'],['y'],['x'])
-        if self.calc == 'max':
+            self.input_core_dims = (["time"], ["y"], ["x"])
+        if self.calc == "max":
             f = _max
             self.args = (self.poly,)
-            self.input_core_dims = (['time'],['y'],['x'])
+            self.input_core_dims = (["time"], ["y"], ["x"])
         return f
 
     def get_temp_array(self):
@@ -74,85 +74,80 @@ class TemporalAggregator:
         to_ndims = get_time_dim(self.agg_to) + 1
         assert from_ndims > to_ndims
         return np.zeros(tuple([1 for x in range(to_ndims)]))
-    
+
     def get_ddargs(self, ddargs):
         if ddargs is None:
             self.multi_dd = False
             return None
         else:
-            ddarr=np.array(ddargs)
+            ddarr = np.array(ddargs)
             if len(ddarr.shape) > 1:
                 return ddarr
             else:
                 return np.array([ddargs])
-    
-    def execute(self, arr,  y_ind, x_ind, **kwargs):
-        return self.func(arr,  y_ind, x_ind, *self.args, **kwargs)
-    
+
+    def execute(self, arr, y_ind, x_ind, **kwargs):
+        return self.func(arr, y_ind, x_ind, *self.args, **kwargs)
+
     # def groupby_execute(self, clim, nzw_ind, update= **kwargs):
-    
+
     def map_execute(self, clim, weights, update=False, **kwargs):
-        
-        y_ind = xr.DataArray(
-            data = weights.nonzero_weight_coords[0],
-            dims = ['y']
-        )
-        x_ind = xr.DataArray(
-            data = weights.nonzero_weight_coords[1],
-            dims = ['x']
-        )
-        
+        y_ind = xr.DataArray(data=weights.nonzero_weight_coords[0], dims=["y"])
+        x_ind = xr.DataArray(data=weights.nonzero_weight_coords[1], dims=["x"])
+
         if self.ddargs is not None:
             # clim.da = clim.da.expand_dims('dd', axis=-1)
             dask_gufunc_kwargs = dict(
-                allow_rechunk=True,
-                output_sizes={'dd':self.ddargs.shape[0]}
+                allow_rechunk=True, output_sizes={"dd": self.ddargs.shape[0]}
             )
-            output_core_dims = [['dd']]
+            output_core_dims = [["dd"]]
             # Update the object or return a copy.
             if update == False:
                 clim_list = [deepcopy(clim) for x in np.arange(self.ddargs.shape[0])]
-            
+
         else:
             dask_gufunc_kwargs = dict(
                 allow_rechunk=True,
             )
-            output_core_dims = ((), )
+            output_core_dims = ((),)
             # Update the object or return a copy.
             if update == False:
                 clim = deepcopy(clim)
-        
+
         out = xr.apply_ufunc(
-            self.execute, clim.da.groupby(self.groupby), y_ind, x_ind,
-            dask='parallelized',
+            self.execute,
+            clim.da.groupby(self.groupby),
+            y_ind,
+            x_ind,
+            dask="parallelized",
             input_core_dims=self.input_core_dims,
             output_core_dims=output_core_dims,
-            exclude_dims={'time'},
+            exclude_dims={"time"},
             output_dtypes=float,
-            dask_gufunc_kwargs=dask_gufunc_kwargs
+            dask_gufunc_kwargs=dask_gufunc_kwargs,
         )
-        
-        if self.ddargs is not None:            
-            out = out.to_dataset(dim='dd')
+
+        if self.ddargs is not None:
+            out = out.to_dataset(dim="dd")
             out = [out[var_name] for var_name in out.variables]
-            
+
             for i, o in enumerate(out):
-                o = o.rename({o.dims[-1]:'time'})
+                o = o.rename({o.dims[-1]: "time"})
                 if type(o.time.values[0]) == datetime.date:
-                    o['time'] = [np.datetime64(x, 'ns') for x in o.time.values]
+                    o["time"] = [np.datetime64(x, "ns") for x in o.time.values]
                 out[i] = o
-            
+
             # Update object and return result
             if type(clim) == Dataset:
                 # out = [deepcopy(clim).update(o) for o in out]
                 [x.update(y) for x, y in zip(clim_list, out)]
                 return clim_list
             else:
-                return out            
+                return out
         else:
-            out = out.rename({out.dims[-1]:'time'})
+            out = out.rename({out.dims[-1]: "time"})
             if type(out.time.values[0]) == datetime.date:
-                out['time'] = [np.datetime64(x, 'ns') for x in out.time.values]
+                out["time"] = [np.datetime64(x, "ns") for x in out.time.values]
 
             # return out
             # Update object and return result
@@ -161,10 +156,10 @@ class TemporalAggregator:
                 return clim
             else:
                 return out
-        
+
+
 @numba.njit(fastmath=True, parallel=True)
 def _avg(frame, y_ind, x_ind, poly):
-    
     frame_shp = frame.shape
     res = np.zeros_like(np.empty((frame_shp[0], frame_shp[1])))
     w = res.copy()
@@ -175,15 +170,15 @@ def _avg(frame, y_ind, x_ind, poly):
         y = yl[l]
         x = xl[l]
         for t in range(frame.shape[2]):
-            i=(y,x,t)
+            i = (y, x, t)
             if int(frame[i]) != -9223372036854775808:
-                res[y,x] += frame[i]
-                w[y,x] += 1
-    return np.power(res/w, poly)
+                res[y, x] += frame[i]
+                w[y, x] += 1
+    return np.power(res / w, poly)
+
 
 @numba.njit(fastmath=True, parallel=True)
 def _max(frame, y_ind, x_ind, poly):
-    
     frame_shp = frame.shape
     res = np.zeros_like(np.empty((frame_shp[0], frame_shp[1])))
     # w = res.copy()
@@ -191,12 +186,12 @@ def _max(frame, y_ind, x_ind, poly):
     for l in prange(len(yl)):
         y = yl[l]
         x = xl[l]
-        res[y,x] += np.nanmax(frame[y,x,:])
+        res[y, x] += np.nanmax(frame[y, x, :])
     return np.power(res, poly)
+
 
 @numba.njit(fastmath=True, parallel=True)
 def _min(frame, y_ind, x_ind, poly):
-    
     frame_shp = frame.shape
     res = np.zeros_like(np.empty((frame_shp[0], frame_shp[1])))
     # w = res.copy()
@@ -204,13 +199,12 @@ def _min(frame, y_ind, x_ind, poly):
     for l in prange(len(yl)):
         y = yl[l]
         x = xl[l]
-        res[y,x] += np.nanmin(frame[y,x,:])
+        res[y, x] += np.nanmin(frame[y, x, :])
     return np.power(res, poly)
 
 
 @numba.njit(fastmath=True, parallel=True)
 def _sum(frame, y_ind, x_ind, poly):
-    
     frame_shp = frame.shape
     res = np.zeros_like(np.empty((frame_shp[0], frame_shp[1])))
     w = res.copy()
@@ -223,21 +217,21 @@ def _sum(frame, y_ind, x_ind, poly):
         isna = 0
         y = yl[l]
         x = xl[l]
-        w[y,x] = 1
+        w[y, x] = 1
         for t in range(frame.shape[2]):
-            i=(y,x,t)
+            i = (y, x, t)
             f = frame[i]
             if int(f) != nv:
-                res[y,x] += f
+                res[y, x] += f
             else:
                 isna += 1
         if isna == isna_dim:
-            res[y,x] = np.nan
-    return np.power(res/w, poly)
+            res[y, x] = np.nan
+    return np.power(res / w, poly)
+
 
 @numba.njit(fastmath=True, parallel=True)
 def _dd(frame, y_ind, x_ind, poly, ddargs):
-    
     # ddargs=[dd_low,dd_high,dd_by]
     frame_shp = frame.shape
     dd_shp = ddargs.shape
@@ -249,24 +243,25 @@ def _dd(frame, y_ind, x_ind, poly, ddargs):
     isna_dim = frame.shape[2]
 
     for d in range(ddargs.shape[0]):
-        ddarg = ddargs[d,:]
+        ddarg = ddargs[d, :]
         for l in prange(len(yl)):
             isna = 0
             y = yl[l]
             x = xl[l]
             for t in range(frame.shape[2]):
-                i=(y,x,t)
+                i = (y, x, t)
                 f = frame[i]
                 if int(f) != nv:
                     if f > ddarg[0] and f < ddarg[1]:
-                        res[y,x,d]+=np.absolute(f-ddarg[ddarg[2]])
-                    w[y,x,d] += 1
-    return res/w
+                        res[y, x, d] += np.absolute(f - ddarg[ddarg[2]])
+                    w[y, x, d] += 1
+    return res / w
+
 
 @numba.njit(fastmath=True, parallel=True)
 def _time(frame, y_ind, x_ind, poly, ddargs):
     frame_shp = frame.shape
-    dd_shp = ddargs.shape    
+    dd_shp = ddargs.shape
     frame_shp = frame.shape
     res = np.zeros_like(np.empty((frame_shp[0], frame_shp[1], dd_shp[0])))
     # w = res.copy()
@@ -276,29 +271,28 @@ def _time(frame, y_ind, x_ind, poly, ddargs):
     isna_dim = frame.shape[2]
 
     for d in range(ddargs.shape[0]):
-        ddarg = ddargs[d,:]
+        ddarg = ddargs[d, :]
         for l in prange(len(yl)):
             isna = 0
             y = yl[l]
             x = xl[l]
             for t in range(frame.shape[2]):
-                i=(y,x,t)
+                i = (y, x, t)
                 f = frame[i]
                 if int(f) != nv:
                     if f > ddarg[0] and f < ddarg[1]:
-                        res[y,x,d]+=1
+                        res[y, x, d] += 1
                     # w[y,x] +=1
                 else:
                     isna += 1
                 if isna == isna_dim:
-                    res[y,x,d] = np.nan
+                    res[y, x, d] = np.nan
     return np.power(res, poly)
 
 
 @numba.njit(fastmath=True, parallel=True)
 def _sine_dd(frame, y_ind, x_ind, poly, dd_low, dd_high, dd_by):
-    
-    ddargs=[dd_low,dd_high,dd_by]
+    ddargs = [dd_low, dd_high, dd_by]
     frame_shp = frame.shape
     res = np.zeros_like(np.empty((frame_shp[0], frame_shp[1])))
     w = res.copy()
@@ -306,97 +300,99 @@ def _sine_dd(frame, y_ind, x_ind, poly, dd_low, dd_high, dd_by):
 
     nv = -9223372036854775808
     isna_dim = frame.shape[2]
-    
+
     for l in prange(len(yl)):
         isna = 0
         y = yl[l]
         x = xl[l]
-        
-        fmax = np.max(frame[y,x,:])
-        fmin = np.min(frame[y,x,:])
+
+        fmax = np.max(frame[y, x, :])
+        fmin = np.min(frame[y, x, :])
         favg = (fmax + fmin) / 2
         if fmax <= ddargs[0]:
-            res[y,x]+=0
+            res[y, x] += 0
         elif ddargs[0] < fmin:
-            res[y,x]+= favg - ddargs[0]
+            res[y, x] += favg - ddargs[0]
         elif fmin < ddargs[0] and ddargs[0] < fmax:
-            tempSave = np.arccos( (2 * ddargs[0] - fmax - fmin) / (fmax - fmin))
-            res[y,x] += ( (favg - ddargs[0])*tempSave + (fmax - fmin) * np.sin(tempSave)/2) / np.pi
+            tempSave = np.arccos((2 * ddargs[0] - fmax - fmin) / (fmax - fmin))
+            res[y, x] += (
+                (favg - ddargs[0]) * tempSave + (fmax - fmin) * np.sin(tempSave) / 2
+            ) / np.pi
     return np.power(res, poly)
+
 
 @numba.njit(fastmath=True, parallel=True)
 def _sine_time(frame, y_ind, x_ind, poly, dd_low, dd_high, dd_by):
-    
-    ddargs=[dd_low,dd_high,dd_by]
+    ddargs = [dd_low, dd_high, dd_by]
     frame_shp = frame.shape
     res = np.zeros_like(np.empty((frame_shp[0], frame_shp[1])))
     w = res.copy()
     yl, xl = y_ind, x_ind
-    
+
     for l in prange(len(yl)):
         isna = 0
         y = yl[l]
         x = xl[l]
-        
-        fmax = np.max(frame[y,x,:])
-        fmin = np.min(frame[y,x,:])
+
+        fmax = np.max(frame[y, x, :])
+        fmin = np.min(frame[y, x, :])
         M = (fmax + fmin) / 2
         W = (fmax - fmin) / 2
         if fmax <= ddargs[0]:
-            res[y,x]+=0
+            res[y, x] += 0
         elif ddargs[0] < fmin:
-            res[y,x]+= 1
+            res[y, x] += 1
         elif fmin < ddargs[0] and ddargs[0] < fmax:
-            xmin = np.arcsin((ddargs[0] - M)/ W)
-            res[y,x] = (np.pi - 2*xmin) / (2*np.pi)
+            xmin = np.arcsin((ddargs[0] - M) / W)
+            res[y, x] = (np.pi - 2 * xmin) / (2 * np.pi)
         # res[ind] = res[ind] / (M)
     return np.power(res, poly)
 
+
 @numba.njit(fastmath=True, parallel=True)
 def _dd_dep(frame, temp, poly, ddargs):
-    
     frame_shp = frame.shape
-    res_shp = nb_contractor(frame, temp) 
+    res_shp = nb_contractor(frame, temp)
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
     w = res.copy()
     frame = nb_expander(frame)
     res_ndim = temp.ndim
-    
+
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
             for a in prange(frame.shape[2]):
                 for m in prange(frame.shape[3]):
                     for d in prange(frame.shape[4]):
                         for h in prange(frame.shape[5]):
-                            i=(y,x,a,m,d,h)
+                            i = (y, x, a, m, d, h)
                             if res_ndim == 2:
-                                ind = (i[0],i[1],0,0,0,0)
+                                ind = (i[0], i[1], 0, 0, 0, 0)
                             elif res_ndim == 3:
-                                ind = (i[0],i[1],i[2],0,0,0) 
+                                ind = (i[0], i[1], i[2], 0, 0, 0)
                             elif res_ndim == 4:
-                                ind = (i[0],i[1],i[2],i[3],0,0) 
+                                ind = (i[0], i[1], i[2], i[3], 0, 0)
                             elif res_ndim == 5:
-                                ind = (i[0],i[1],i[2],i[3],i[4],0)
+                                ind = (i[0], i[1], i[2], i[3], i[4], 0)
                             f = frame[i]
                             if int(f) != -9223372036854775808:
                                 if f > ddargs[0] and f < ddargs[1]:
-                                    res[y,x]+=np.absolute(f-ddargs[ddargs[2]])
-                                w[y,x] += 1
-    return np.power(res/w, poly).reshape(res_shp)
+                                    res[y, x] += np.absolute(f - ddargs[ddargs[2]])
+                                w[y, x] += 1
+    return np.power(res / w, poly).reshape(res_shp)
+
 
 @numba.njit(fastmath=True, parallel=True)
 def _sum_dep(frame, temp, poly):
-        
     frame_shp = frame.shape
-    res_shp = nb_contractor(frame, temp) 
+    res_shp = nb_contractor(frame, temp)
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
     # isna_dim = np.ones_like(res)
     frame = nb_expander(frame)
     res_ndim = temp.ndim
-    isna_dim = frame.shape[2]*frame.shape[3]*frame.shape[4]*frame.shape[5]
-    
+    isna_dim = frame.shape[2] * frame.shape[3] * frame.shape[4] * frame.shape[5]
+
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
             isna = 0
@@ -404,108 +400,113 @@ def _sum_dep(frame, temp, poly):
                 for m in prange(frame.shape[3]):
                     for d in prange(frame.shape[4]):
                         for h in prange(frame.shape[5]):
-                            i=(y,x,a,m,d,h)
+                            i = (y, x, a, m, d, h)
                             if res_ndim == 2:
-                                ind = (i[0],i[1],0,0,0,0)
+                                ind = (i[0], i[1], 0, 0, 0, 0)
                             elif res_ndim == 3:
-                                ind = (i[0],i[1],i[2],0,0,0) 
+                                ind = (i[0], i[1], i[2], 0, 0, 0)
                             elif res_ndim == 4:
-                                ind = (i[0],i[1],i[2],i[3],0,0) 
+                                ind = (i[0], i[1], i[2], i[3], 0, 0)
                             elif res_ndim == 5:
-                                ind = (i[0],i[1],i[2],i[3],i[4],0)
+                                ind = (i[0], i[1], i[2], i[3], i[4], 0)
                             if int(frame[i]) != -9223372036854775808:
-                                res[ind] += frame[i]      
+                                res[ind] += frame[i]
                             else:
                                 isna += 1
             if isna == isna_dim:
-                res[y,x,:,:,:,:] = np.nan
+                res[y, x, :, :, :, :] = np.nan
     return np.power(res, poly).reshape(res_shp)
-               
+
 
 @numba.njit(fastmath=True, parallel=True)
 def _sine_dd_dep(frame, temp, poly, ddargs):
-    
     frame_shp = frame.shape
-    res_shp = nb_contractor(frame, temp) 
+    res_shp = nb_contractor(frame, temp)
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
     frame = nb_expander(frame)
     res_ndim = temp.ndim
-    
+
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
             for a in prange(frame.shape[2]):
                 for m in prange(frame.shape[3]):
                     for d in prange(frame.shape[4]):
-                        i=(y,x,a,m,d)
+                        i = (y, x, a, m, d)
                         # w += 1
                         if res_ndim == 2:
-                            ind = (i[0],i[1],0,0,0,0)
+                            ind = (i[0], i[1], 0, 0, 0, 0)
                         elif res_ndim == 3:
-                            ind = (i[0],i[1],i[2],0,0,0) 
+                            ind = (i[0], i[1], i[2], 0, 0, 0)
                         elif res_ndim == 4:
-                            ind = (i[0],i[1],i[2],i[3],0,0) 
+                            ind = (i[0], i[1], i[2], i[3], 0, 0)
                         elif res_ndim == 5:
-                            ind = (i[0],i[1],i[2],i[3],i[4],0)
-                        fmax = np.max(frame[y,x,a,m,d,:])
-                        fmin = np.min(frame[y,x,a,m,d,:])
+                            ind = (i[0], i[1], i[2], i[3], i[4], 0)
+                        fmax = np.max(frame[y, x, a, m, d, :])
+                        fmin = np.min(frame[y, x, a, m, d, :])
                         favg = (fmax + fmin) / 2
                         if fmax <= ddargs[0]:
-                            res[ind]+=0
+                            res[ind] += 0
                         elif ddargs[0] < fmin:
-                            res[ind]+= favg - ddargs[0]
+                            res[ind] += favg - ddargs[0]
                         elif fmin < ddargs[0] and ddargs[0] < fmax:
-                            tempSave = np.arccos( (2 * ddargs[0] - fmax - fmin) / (fmax - fmin))
-                            res[ind] += ( (favg - ddargs[0])*tempSave + (fmax - fmin) * np.sin(tempSave)/2) / np.pi
+                            tempSave = np.arccos(
+                                (2 * ddargs[0] - fmax - fmin) / (fmax - fmin)
+                            )
+                            res[ind] += (
+                                (favg - ddargs[0]) * tempSave
+                                + (fmax - fmin) * np.sin(tempSave) / 2
+                            ) / np.pi
     return np.power(res, poly)
+
 
 @numba.njit(fastmath=True, parallel=True)
 def _sine_time_dep(frame, temp, poly, ddargs):
-    
     frame_shp = frame.shape
-    res_shp = nb_contractor(frame, temp) 
+    res_shp = nb_contractor(frame, temp)
     res_empty = np.zeros_like(np.empty(res_shp))
     res = nb_expander(res_empty)
     frame = nb_expander(frame)
     res_ndim = temp.ndim
-    
+
     for y in prange(frame.shape[0]):
         for x in prange(frame.shape[1]):
             for a in prange(frame.shape[2]):
                 for m in prange(frame.shape[3]):
                     for d in prange(frame.shape[4]):
-                        i=(y,x,a,m,d)
+                        i = (y, x, a, m, d)
                         # w += 1
                         if res_ndim == 2:
-                            ind = (i[0],i[1],0,0,0,0)
+                            ind = (i[0], i[1], 0, 0, 0, 0)
                         elif res_ndim == 3:
-                            ind = (i[0],i[1],i[2],0,0,0) 
+                            ind = (i[0], i[1], i[2], 0, 0, 0)
                         elif res_ndim == 4:
-                            ind = (i[0],i[1],i[2],i[3],0,0) 
+                            ind = (i[0], i[1], i[2], i[3], 0, 0)
                         elif res_ndim == 5:
-                            ind = (i[0],i[1],i[2],i[3],i[4],0)
-                        fmax = np.max(frame[y,x,a,m,d,:])
-                        fmin = np.min(frame[y,x,a,m,d,:])
+                            ind = (i[0], i[1], i[2], i[3], i[4], 0)
+                        fmax = np.max(frame[y, x, a, m, d, :])
+                        fmin = np.min(frame[y, x, a, m, d, :])
                         M = (fmax + fmin) / 2
                         W = (fmax - fmin) / 2
                         if fmax <= ddargs[0]:
-                            res[ind]+=0
+                            res[ind] += 0
                         elif ddargs[0] < fmin:
-                            res[ind]+= 1
+                            res[ind] += 1
                         elif fmin < ddargs[0] and ddargs[0] < fmax:
-                            xmin = np.arcsin((ddargs[0] - M)/ W)
-                            res[ind] = (np.pi - 2*xmin) / (2*np.pi)
+                            xmin = np.arcsin((ddargs[0] - M) / W)
+                            res[ind] = (np.pi - 2 * xmin) / (2 * np.pi)
                         # res[ind] = res[ind] / (M)
     return np.power(res, poly)
 
-def from_name(name='era5l',
-              calc={'daily':('dd', 1, [30,999,0]),
-                    'yearly':('sum', 1)}):
-    daily = calc['daily']
-    yearly = calc['yearly']
-    if name == 'era5l':
+
+def from_name(
+    name="era5l", calc={"daily": ("dd", 1, [30, 999, 0]), "yearly": ("sum", 1)}
+):
+    daily = calc["daily"]
+    yearly = calc["yearly"]
+    if name == "era5l":
         return TemporalAggregator(
-            DailyWeatherAggregator(*daily),
-            YearlyWeatherAggregator(*yearly))
+            DailyWeatherAggregator(*daily), YearlyWeatherAggregator(*yearly)
+        )
     else:
         raise NotImplementedError

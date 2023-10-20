@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
+
 # import pygeos
 import dask
 import dask.array
@@ -22,254 +23,277 @@ from ..dataset import *
 from ..utils import *
 from ..cache import *
 
+
 class GridWeights:
-    
     def __init__(
-            self, 
-            grid,
-            georegions,
-            raster_weights,
-            chunks=30,
-            project_dir=None,
-            simplify=None,
-            default_to_area_weights=True,
-            verbose=True
-        ):
-        
-        self.grid = grid  
-        self.georegions = georegions      
+        self,
+        grid,
+        georegions,
+        raster_weights,
+        chunks=30,
+        project_dir=None,
+        simplify=None,
+        default_to_area_weights=True,
+        verbose=True,
+    ):
+        self.grid = grid
+        self.georegions = georegions
         self.grid.clip_grid_to_georegions_extent(georegions)
         self.raster_weights = raster_weights
         self.chunks = chunks
         self.project_dir = project_dir
         self.simplify = simplify
         self.default_to_area_weights = default_to_area_weights
-        self.verbose=True
-        self.weights=None
-        self.nonzero_weight_coords=None
-        
+        self.verbose = True
+        self.weights = None
+        self.nonzero_weight_coords = None
+
         self.cache = initialize_cache(self)
-    
+
     @lru_cache(maxsize=None)
     def simplify_poly_array(self):
         georegions = deepcopy(self.georegions)
-        simplified = dask_geopandas.from_geopandas(
-            georegions.shp, 
-            npartitions=30).simplify(self.simplify).compute()
-        georegions.shp['geometry'] = simplified
+        simplified = (
+            dask_geopandas.from_geopandas(georegions.shp, npartitions=30)
+            .simplify(self.simplify)
+            .compute()
+        )
+        georegions.shp["geometry"] = simplified
         self.georegions = georegions
-    
+
     @lru_cache(maxsize=None)
     def mask(self, buffer=0):
-            
         centroids = self.grid.centroids()
-        fc = gpd.GeoDataFrame(geometry=centroids.flatten()).set_crs('EPSG:4326')
-        
+        fc = gpd.GeoDataFrame(geometry=centroids.flatten()).set_crs("EPSG:4326")
+
         # fc = fc.rechunk(chunks)[...,None]
         fc = dask_geopandas.from_geopandas(fc, npartitions=self.chunks)
-        
+
         poly_array = np.array(self.georegions.poly_array(buffer, chunks=self.chunks))
-            
+
         # poly_shp = poly_array.shape
         # if poly_shp==():
-        #     poly_array = 
+        #     poly_array =
         poly_array = dask_geopandas.from_geopandas(
-            gpd.GeoDataFrame(geometry=poly_array),
-            npartitions=1)
-        
+            gpd.GeoDataFrame(geometry=poly_array), npartitions=1
+        )
+
         # mask = fc.map_blocks(pygeos.within, poly_array, dtype=bool)
-        mask = fc.sjoin(poly_array, predicate='within').compute()
-        
+        mask = fc.sjoin(poly_array, predicate="within").compute()
+
         return mask
-    
-    
+
     def get_border_cells(self, buffers=None):
-        
-        print('Searching for border cells...')
+        print("Searching for border cells...")
         if buffers is None:
             buffers = (-self.grid.resolution, self.grid.resolution)
-        
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            print('Negative buffer')
-            m1 = self.mask(buffer = buffers[0])
-            print('Positive buffer')
-            m2 = self.mask(buffer = buffers[1])
-        
-        m2['cell_id'] = m2.index.values
-        m = m2.merge(m1, how='outer', indicator=True)
-        border = m.loc[m._merge=='left_only'].drop(columns='_merge')
-        
+            print("Negative buffer")
+            m1 = self.mask(buffer=buffers[0])
+            print("Positive buffer")
+            m2 = self.mask(buffer=buffers[1])
+
+        m2["cell_id"] = m2.index.values
+        m = m2.merge(m1, how="outer", indicator=True)
+        border = m.loc[m._merge == "left_only"].drop(columns="_merge")
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            print('Generating cells...')
-            cells = border.buffer(self.grid.resolution/2, cap_style=3)
-        border['geometry'] = cells
+            print("Generating cells...")
+            cells = border.buffer(self.grid.resolution / 2, cap_style=3)
+        border["geometry"] = cells
         return border
 
     def intersect_border_cells(self):
-        
         border = self.get_border_cells()
-        
-        reg = border[['index_right']].merge(
-            self.georegions.shp,
-            how='left',
-            left_on='index_right',
-            right_index=True
+
+        reg = border[["index_right"]].merge(
+            self.georegions.shp, how="left", left_on="index_right", right_index=True
         )
-        reg = dask_geopandas.from_geopandas(gpd.GeoDataFrame(reg, geometry='geometry'), npartitions=1)
-        dgb = dask_geopandas.from_geopandas(gpd.GeoDataFrame(border), npartitions=self.chunks)
-        
+        reg = dask_geopandas.from_geopandas(
+            gpd.GeoDataFrame(reg, geometry="geometry"), npartitions=1
+        )
+        dgb = dask_geopandas.from_geopandas(
+            gpd.GeoDataFrame(border), npartitions=self.chunks
+        )
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            print('Intersecting...')
+            print("Intersecting...")
             inter = dgb.geometry.intersection(reg.geometry).compute()
-            print('Calculating area weight')
+            print("Calculating area weight")
             inter = inter.area / self.grid.cell_area
-            
-        border['area_weight'] = inter
-        
+
+        border["area_weight"] = inter
+
         return border
-    
+
     def get_cell_id_dataframe(self):
-        return pd.DataFrame({
-            'cell_id':self.grid.index.flatten(),
-            'longitude':self.grid.lon_array.flatten(),
-            'latitude':self.grid.lat_array.flatten()
-        })
-    
+        return pd.DataFrame(
+            {
+                "cell_id": self.grid.index.flatten(),
+                "longitude": self.grid.lon_array.flatten(),
+                "latitude": self.grid.lat_array.flatten(),
+            }
+        )
+
     def get_area_weights(self):
-        
         border_cells = self.intersect_border_cells()
-        
-        interior_cells = self.mask(buffer = -self.grid.resolution)
-        interior_cells = interior_cells.reset_index().rename(columns={'index':'cell_id'})
-        interior_cells['area_weight'] = 1
-        
+
+        interior_cells = self.mask(buffer=-self.grid.resolution)
+        interior_cells = interior_cells.reset_index().rename(
+            columns={"index": "cell_id"}
+        )
+        interior_cells["area_weight"] = 1
+
         area_weights = pd.concat(
-            [interior_cells.drop(columns='geometry'),
-             border_cells.drop(columns='geometry')],
-            axis=0)
-        
+            [
+                interior_cells.drop(columns="geometry"),
+                border_cells.drop(columns="geometry"),
+            ],
+            axis=0,
+        )
+
         area_weights = area_weights.loc[area_weights.area_weight > 0]
-        
+
         cell_df = self.get_cell_id_dataframe()
-        area_weights = area_weights.merge(cell_df, how='left', on='cell_id')
-        
+        area_weights = area_weights.merge(cell_df, how="left", on="cell_id")
+
         return area_weights
-    
+
     def get_weighted_area_weights(self):
-        
         area_weights = self.get_area_weights()
-            
-        raster_weights = self.raster_weights.raster.to_dataframe(name='raster_weight')
-        
+
+        raster_weights = self.raster_weights.raster.to_dataframe(name="raster_weight")
+
         weights = area_weights.merge(
             raster_weights,
-            how='left',
-            left_on=['latitude', 'longitude'],
-            right_on=['lat', 'lon']
+            how="left",
+            left_on=["latitude", "longitude"],
+            right_on=["lat", "lon"],
         )
-        
+
         # Parallelize
         dw = dask.dataframe.from_pandas(weights, npartitions=self.chunks)
-        
+
         # Check for weight totals
-        raster_total = (dw[['index_right', 'raster_weight']]
-            .groupby('index_right')
+        raster_total = (
+            dw[["index_right", "raster_weight"]]
+            .groupby("index_right")
             .sum()
-            .rename(columns={'raster_weight':'total_weight'})
+            .rename(columns={"raster_weight": "total_weight"})
         )
-        raster_total['zero_weight'] = raster_total.total_weight == 0
-        
+        raster_total["zero_weight"] = raster_total.total_weight == 0
+
         # Merge raster totals
-        tw = dw.merge(raster_total, how='left', left_on='index_right', right_index=True).compute()
-        
+        tw = dw.merge(
+            raster_total, how="left", left_on="index_right", right_index=True
+        ).compute()
+
         # Rescale raster weights
-        tw.loc[np.logical_not(tw.zero_weight), ['weight']] = tw.area_weight * (tw.raster_weight / tw.total_weight)
-        
+        tw.loc[np.logical_not(tw.zero_weight), ["weight"]] = tw.area_weight * (
+            tw.raster_weight / tw.total_weight
+        )
+
         # Default to area weights for places with zero raster weight if indicated
         if self.default_to_area_weights:
-            tw.loc[tw.zero_weight, ['weight']] = tw.area_weight
+            tw.loc[tw.zero_weight, ["weight"]] = tw.area_weight
         else:
             tw = tw.loc[np.logical_not(tw.zero_weight)]
-            
+
         return tw
 
     # @lru_cache(maxsize=None)
     def calculate_weights(self):
-        
-        gdict = {'func':'weights'} 
-        
+        gdict = {"func": "weights"}
+
         if self.simplify is not None:
             self.simplify_poly_array()
-        
+
         # Load raster weights if needed
         if self.raster_weights is not None:
             self.raster_weights.rescale_raster_to_grid(self.grid, verbose=self.verbose)
-            gdict['raster_weights'] = self.raster_weights.cdict()
+            gdict["raster_weights"] = self.raster_weights.cdict()
         else:
-            gdict['raster_weights'] = None
-        
+            gdict["raster_weights"] = None
+
         # Check to see if file is cached
         if self.cache is not None:
-            cache = self.cache.uncache(gdict, extension='.feather')
+            cache = self.cache.uncache(gdict, extension=".feather")
         else:
             cache = None
-            
+
         if cache is not None:
-            print(f'Loading rescaled weights from cache')
+            print(f"Loading rescaled weights from cache")
             if self.verbose:
-                print('Cache dictionary:')
+                print("Cache dictionary:")
                 pprint(gdict)
             self.weights = cache
         else:
             if self.raster_weights is None:
                 w = self.get_area_weights()
-                w['weight'] = w['area_weight']
+                w["weight"] = w["area_weight"]
             else:
-                w = self.get_weighted_area_weights()    
+                w = self.get_weighted_area_weights()
             if self.cache is not None:
-                    self.cache.cache(w, gdict, extension='.feather')
+                self.cache.cache(w, gdict, extension=".feather")
             self.weights = w
-        
-        self.nonzero_weight_coords = np.isin(self.grid.index, self.weights.cell_id).nonzero()
-        
+
+        self.nonzero_weight_coords = np.isin(
+            self.grid.index, self.weights.cell_id
+        ).nonzero()
+
     def cdict(self):
         gdict = {
-            'grid':clean_object(self.grid),
+            "grid": clean_object(self.grid),
             # 'georegions': clean_object(self.georegions),
-            'georegions':{
-                'regions':str(self.georegions.regions),
-                'geometry':str(self.georegions.shp.geometry)
-            }
+            "georegions": {
+                "regions": str(self.georegions.regions),
+                "geometry": str(self.georegions.shp.geometry),
+            },
         }
 
         if self.raster_weights is not None:
-            gdict['raster_weights'] = clean_object(self.raster_weights)
+            gdict["raster_weights"] = clean_object(self.raster_weights)
         else:
-            gdict['raster_weights'] = None
+            gdict["raster_weights"] = None
 
-        return gdict   
+        return gdict
 
 
-def from_objects(clim, georegions, secondary_weights=None, wtype='crop', name='cropland', crop='corn', feed=None, write=False, project_dir=None, **kwargs):
-    
+def from_objects(
+    clim,
+    georegions,
+    secondary_weights=None,
+    wtype="crop",
+    name="cropland",
+    crop="corn",
+    feed=None,
+    write=False,
+    project_dir=None,
+    **kwargs,
+):
     if secondary_weights is None:
-        if wtype == 'crop':
+        if wtype == "crop":
             if crop is not None:
                 secondary_weights = crop_weights.from_name(
-                    name=name, crop=crop, feed=feed, write=write, project_dir=project_dir)
+                    name=name,
+                    crop=crop,
+                    feed=feed,
+                    write=write,
+                    project_dir=project_dir,
+                )
             else:
                 raise NotImplementedError
-        elif wtype == 'pop':
+        elif wtype == "pop":
             secondary_weights = pop_weights.from_name(
-                    name=name, write=write, project_dir=project_dir)
+                name=name, write=write, project_dir=project_dir
+            )
         else:
             secondary_weights = None
-    
+
     return GridWeights(
-        clim.grid, georegions, secondary_weights, project_dir=project_dir, **kwargs)
-    
-    
-    
+        clim.grid, georegions, secondary_weights, project_dir=project_dir, **kwargs
+    )
