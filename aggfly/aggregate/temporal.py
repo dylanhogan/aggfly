@@ -82,8 +82,10 @@ class TemporalAggregator:
         else:
             ddarr = np.array(ddargs)
             if len(ddarr.shape) > 1:
+                self.multi_dd = True
                 return ddarr
             else:
+                self.multi_dd = False
                 return np.array([ddargs])
 
     def execute(self, arr, y_ind, x_ind, **kwargs):
@@ -141,7 +143,10 @@ class TemporalAggregator:
             if type(clim) == Dataset:
                 # out = [deepcopy(clim).update(o) for o in out]
                 [x.update(y) for x, y in zip(clim_list, out)]
-                return clim_list
+                if len(clim_list) == 1:
+                    return clim_list[0]
+                else:
+                    return clim_list
             else:
                 return out
         else:
