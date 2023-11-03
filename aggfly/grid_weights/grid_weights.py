@@ -253,6 +253,8 @@ class GridWeights:
                 "regions": str(self.georegions.regions),
                 "geometry": str(self.georegions.shp.geometry),
             },
+            "simplify": self.simplify,
+            "default_to_area_weights": self.default_to_area_weights
         }
 
         if self.raster_weights is not None:
