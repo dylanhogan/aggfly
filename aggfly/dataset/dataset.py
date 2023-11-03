@@ -252,7 +252,7 @@ def from_path(
 
     else:
         if ".zarr" in path:
-            array = xr.open_zarr(path, chunks=chunks, **kwargs)[var]
+            array = xr.open_zarr(path, **kwargs)[var]
         else:
             array = xr.open_dataset(path, chunks=chunks, **kwargs)[var]
 
