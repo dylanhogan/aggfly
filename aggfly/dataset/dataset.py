@@ -26,7 +26,7 @@ class Dataset:
         time_fix=False,
         name=None,
     ):
-        da = clean_dims(da, xycoords)
+        da = clean_dims(da, xycoords).sortby('time')
         if time_sel is not None:
             da = da.sortby("time").sel(time=time_sel)
             # time_fix=True
