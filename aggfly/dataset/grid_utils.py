@@ -9,6 +9,25 @@ from functools import lru_cache
 
 from ..utils import autochunk
 
+@np.vectorize
+def lon_to_180(longitude):
+    return((longitude + 180) % 360 - 180)
+
+
+@np.vectorize
+def lon_to_360(longitude):
+    return((longitude < 0)*(longitude + 360) + (longitude >=0)*longitude)
+    
+def array_lon_to_180(array):
+    # to_180 = (array.coords['longitude'] + 180) % 360 - 180
+    to_180 = lon_to_180(array.coords['longitude'])
+    array = array.assign_coords({'longitude':('longitude', to_180.data)}).sortby('longitude')
+    return(array)
+
+def array_lon_to_360(array):
+    to_360 = lon_to_360(array.coords['longitude'])
+    array = array.assign_coords({'longitude':('longitude', to_360.data)}).sortby('longitude')
+    return(array)
 
 def grid_centroids(lon_bound, lat_bound, res):
     longitude, latitude = np.meshgrid(

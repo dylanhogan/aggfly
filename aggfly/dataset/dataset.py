@@ -20,6 +20,7 @@ class Dataset:
         da,
         xycoords=("longitude", "latitude"),
         time_sel=None,
+        lon_is_360=True,
         preprocess=None,
         clip_geom=None,
         time_fix=False,
@@ -34,12 +35,13 @@ class Dataset:
 
         self.update(da, init=True)
         self.name = name
+        self.lon_is_360 = lon_is_360
         self.coords = self.da.coords
 
         self.longitude = self.da.longitude
         self.latitude = self.da.latitude
         assert np.all([x in list(self.coords) for x in ["latitude", "longitude"]])
-        self.grid = Grid(self.longitude, self.latitude, self.name)
+        self.grid = Grid(self.longitude, self.latitude, self.name, self.lon_is_360)
         self.history = []
         if clip_geom is not None:
             self.clip_data_to_georegions_extent(clip_geom)
@@ -51,10 +53,10 @@ class Dataset:
         self.da = self.da.chunk(chunks)
 
     def clip_data_to_grid(self, split=False):
-        with dask.config.set(**{"array.slicing.split_large_chunks": split}):
-            self.da = self.da.sel(
-                latitude=self.grid.latitude, longitude=self.grid.longitude
-            )
+        # with dask.config.set(**{"array.slicing.split_large_chunks": split}):
+        self.da = self.da.sel(
+            latitude=self.grid.latitude, longitude=self.grid.longitude
+        )
         self.coords = self.da.coords
         self.longitude = self.da.longitude
         self.latitude = self.da.latitude
@@ -198,6 +200,19 @@ class Dataset:
             d = {k: kwargs[k]}
             da = da.sel(d).expand_dims(k).transpose(*self.da.dims)
         self.update(da)
+        
+    def rescale_longitude(self):
+        # Update Longitude coordinates
+        if self.lon_is_360:
+            self.update(array_lon_to_180(self.da))
+            self.lon_is_360 = False
+        else:
+            self.update(array_lon_to_360(self.da))
+            self.lon_is_360 = True
+        # Regenerate attributes
+        self.longitude = self.da.longitude
+        self.latitude = self.da.latitude
+        self.grid = Grid(self.longitude, self.latitude, self.name, self.lon_is_360)
 
     def power(self, exp, update=False):
         arr = self.da.data.map_blocks(_power, exp)
@@ -236,6 +251,7 @@ def from_path(
     xycoords=("longitude", "latitude"),
     time_sel=None,
     clip_geom=None,
+    lon_is_360=True,
     time_fix=False,
     preprocess=None,
     name=None,
@@ -260,6 +276,7 @@ def from_path(
         array,
         xycoords=xycoords,
         time_sel=time_sel,
+        lon_is_360=lon_is_360,
         preprocess=preprocess,
         clip_geom=clip_geom,
         time_fix=time_fix,

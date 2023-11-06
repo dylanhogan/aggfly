@@ -13,7 +13,7 @@ from .grid_utils import *
 
 
 class Grid:
-    def __init__(self, longitude, latitude, name):
+    def __init__(self, longitude, latitude, name, lon_is_360):
         self.longitude = longitude
         self.latitude = latitude
         self.lon_array, self.lat_array = np.meshgrid(self.longitude, self.latitude)
@@ -21,6 +21,7 @@ class Grid:
             self.lon_array.shape
         )
         self.name = name
+        self.lon_is_360 = lon_is_360
         self.resolution = self.get_resolution()
         self.cell_area = self.get_cell_area()
 
@@ -38,7 +39,10 @@ class Grid:
 
     @lru_cache(maxsize=None)
     def clip_grid_to_georegions_extent(self, georegions):
+        
         bounds = georegions.shp.total_bounds
+        if self.lon_is_360:
+            bounds[[0,2]] = lon_to_360(bounds[[0,2]])
         self.clip_grid_to_bbox(bounds)
 
     def clip_grid_to_bbox(self, bounds):
