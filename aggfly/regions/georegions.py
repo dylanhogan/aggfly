@@ -30,14 +30,14 @@ class GeoRegions:
     path : str
         The path to the shapefile.
     """
-    
+
     def __init__(
         self,
         shp: gpd.GeoDataFrame = None,
         regionid: str = "state",
         region_list: list = None,
         name: str = None,
-        path: str = None
+        path: str = None,
     ):
         """
         Constructs all the necessary attributes for the GeoRegions object.
@@ -64,10 +64,7 @@ class GeoRegions:
         self.path = path
 
     def poly_array(
-        self,
-        buffer: int = 0,
-        datatype: str = "array",
-        chunks: int = 20
+        self, buffer: int = 0, datatype: str = "array", chunks: int = 20
     ) -> Union[np.ndarray, dask.array.Array]:
         """
         Returns a polygon array of the geographical regions.
@@ -147,7 +144,9 @@ class GeoRegions:
         return shp
 
 
-def from_path(path: str, regionid: str, region_list: Optional[List[str]] = None) -> 'GeoRegions':
+def from_path(
+    path: str, regionid: str, region_list: Optional[List[str]] = None
+) -> "GeoRegions":
     """
     Loads a GeoRegions object from a shapefile.
 

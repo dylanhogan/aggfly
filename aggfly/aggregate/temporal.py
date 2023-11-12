@@ -63,12 +63,12 @@ class TemporalAggregator:
                 self.multi_dd = False
             return ddargs
 
-    def execute(self, clim, weights = None, update=False, **kwargs):
+    def execute(self, clim, weights=None, update=False, **kwargs):
         ds = deepcopy(clim.da)
-        
+
         if weights is not None:
             ds = ds.where(weights.nonzero_weight_mask)
-        
+
         if self.multi_dd:
             ds = ds.expand_dims("dd", axis=-1)
             if not update:

@@ -25,13 +25,11 @@ from ..cache import *
 
 
 class GridWeights:
-    
-    
     def __init__(
         self,
         grid: Grid,
         georegions: GeoRegions,
-        raster_weights: Optional[Union[CropWeights,PopWeights]] = None,
+        raster_weights: Optional[Union[CropWeights, PopWeights]] = None,
         chunks: int = 30,
         project_dir: Optional[str] = None,
         simplify: Optional[Union[float, int]] = None,
@@ -111,18 +109,16 @@ class GridWeights:
             if self.cache is not None:
                 self.cache.cache(w, gdict, extension=".feather")
             self.weights = w
-        
-        nonzero_weights = np.isin(
-            self.grid.index, self.weights.cell_id
-        )
+
+        nonzero_weights = np.isin(self.grid.index, self.weights.cell_id)
         self.nonzero_weight_coords = nonzero_weights.nonzero()
         self.nonzero_weight_mask = xr.DataArray(
-            data = nonzero_weights,
-            dims = ['latitude', 'longitude'],
-            coords = {
-                'latitude': ('latitude', self.grid.latitude.values),
-                'longitude': ('longitude', self.grid.longitude.values)
-            }
+            data=nonzero_weights,
+            dims=["latitude", "longitude"],
+            coords={
+                "latitude": ("latitude", self.grid.latitude.values),
+                "longitude": ("longitude", self.grid.longitude.values),
+            },
         )
         if not self.grid.lon_is_360:
             self.nonzero_weight_mask = array_lon_to_360(self.nonzero_weight_mask)
@@ -156,7 +152,7 @@ class GridWeights:
         geopandas.GeoDataFrame
             The masked grid.
         """
-        
+
         centroids = self.grid.centroids()
         fc = gpd.GeoDataFrame(geometry=centroids.flatten()).set_crs("EPSG:4326")
         fc = dask_geopandas.from_geopandas(fc, npartitions=self.chunks)
@@ -170,7 +166,9 @@ class GridWeights:
 
         return mask
 
-    def get_border_cells(self, buffers: Optional[List[float]] = None) -> gpd.GeoDataFrame:
+    def get_border_cells(
+        self, buffers: Optional[List[float]] = None
+    ) -> gpd.GeoDataFrame:
         """
         Get the border cells of the grid.
 
@@ -336,7 +334,7 @@ class GridWeights:
             tw = tw.loc[np.logical_not(tw.zero_weight)]
 
         return tw
-            
+
     def cdict(self) -> Dict:
         """
         Get a dictionary representation of the GridWeights object.
@@ -367,7 +365,7 @@ class GridWeights:
 def from_objects(
     clim: Dataset,
     georegions: GeoRegions,
-    secondary_weights: Optional[Union[CropWeights,PopWeights]] = None,
+    secondary_weights: Optional[Union[CropWeights, PopWeights]] = None,
     wtype: str = "crop",
     name: str = "cropland",
     crop: Optional[str] = "corn",
@@ -408,7 +406,7 @@ def from_objects(
     if clim.lon_is_360:
         clim = deepcopy(clim)
         clim.rescale_longitude()
-    
+
     if secondary_weights is None:
         if wtype == "crop":
             if crop is not None:

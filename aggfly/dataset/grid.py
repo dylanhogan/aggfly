@@ -41,12 +41,12 @@ class Grid:
     def clip_grid_to_georegions_extent(self, georegions):
         bounds = georegions.shp.total_bounds
         if self.lon_is_360:
-            all_bounds = lon_to_360(np.array(georegions.shp.bounds)[:,[0,2]])
-            xmin = all_bounds[:,0].min()
-            xmax = all_bounds[:,1].max()
+            all_bounds = lon_to_360(np.array(georegions.shp.bounds)[:, [0, 2]])
+            xmin = all_bounds[:, 0].min()
+            xmax = all_bounds[:, 1].max()
             bounds = georegions.shp.total_bounds
-            bounds[[0,2]] = [xmin, xmax]
-        
+            bounds[[0, 2]] = [xmin, xmax]
+
         self.clip_grid_to_bbox(bounds)
 
     def clip_grid_to_bbox(self, bounds):

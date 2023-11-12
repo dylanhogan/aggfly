@@ -42,7 +42,7 @@ class Dataset:
     georegions : GeoRegions
         The geographical regions associated with the dataset.
     """
-    
+
     def __init__(
         self,
         da: xr.DataArray,
@@ -122,7 +122,7 @@ class Dataset:
         split : bool, optional
             A flag indicating if the large chunks should be split (default is False).
         """
-        
+
         # with dask.config.set(**{"array.slicing.split_large_chunks": split}):
         self.da = self.da.sel(
             latitude=self.grid.latitude, longitude=self.grid.longitude
@@ -131,7 +131,9 @@ class Dataset:
         self.longitude = self.da.longitude
         self.latitude = self.da.latitude
 
-    def clip_data_to_georegions_extent(self, georegions: GeoRegions, split: bool = False, update: bool = True):
+    def clip_data_to_georegions_extent(
+        self, georegions: GeoRegions, split: bool = False, update: bool = True
+    ):
         """
         Clips the data array to the extent of the georegions.
 
@@ -144,7 +146,7 @@ class Dataset:
         update : bool, optional
             A flag indicating if the data array should be updated (default is True).
         """
-        
+
         if update:
             self.grid.clip_grid_to_georegions_extent(georegions)
             self.clip_data_to_grid(split)
@@ -168,7 +170,9 @@ class Dataset:
         self.grid.clip_grid_to_bbox(bounds)
         self.clip_data_to_grid(split)
 
-    def compute(self, dask_array: bool = True, chunks: Union[str, tuple] = None) -> None:
+    def compute(
+        self, dask_array: bool = True, chunks: Union[str, tuple] = None
+    ) -> None:
         """
         Computes the data array.
 
@@ -182,7 +186,7 @@ class Dataset:
         # ...
         self.update(self.da.compute(), dask_array=dask_array, chunks=chunks)
 
-    def deepcopy(self) -> 'Dataset':
+    def deepcopy(self) -> "Dataset":
         """
         Creates a deep copy of the Dataset object.
 
@@ -382,7 +386,7 @@ class Dataset:
         self.latitude = self.da.latitude
         self.grid = Grid(self.longitude, self.latitude, self.name, self.lon_is_360)
 
-    def power(self, exp: int, update: bool = False) -> Optional['Dataset']:
+    def power(self, exp: int, update: bool = False) -> Optional["Dataset"]:
         """
         Raises the data array to the specified power.
 
@@ -408,7 +412,7 @@ class Dataset:
             slf.history.append(f"power{exp}")
             return slf
 
-    def interact(self, inter: Union['Dataset', xr.DataArray]) -> None:
+    def interact(self, inter: Union["Dataset", xr.DataArray]) -> None:
         """
         Interacts the data array with another data array.
 
@@ -446,9 +450,13 @@ def from_path(
     time_fix: bool = False,
     preprocess: Optional[Callable[[xr.Dataset], xr.Dataset]] = None,
     name: Optional[str] = None,
-    chunks: Dict[str, Union[str, int]] = {"time": "auto", "latitude": -1, "longitude": -1},
+    chunks: Dict[str, Union[str, int]] = {
+        "time": "auto",
+        "latitude": -1,
+        "longitude": -1,
+    },
     **kwargs,
-) -> 'Dataset':
+) -> "Dataset":
     """
     Loads a Dataset from a file or a set of files.
 
@@ -521,4 +529,3 @@ def get_path(name):
         return ("/home3/dth2133/data/ERA5", "zarr", None)
     else:
         raise NotImplementedError
-
