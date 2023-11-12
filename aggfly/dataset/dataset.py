@@ -26,7 +26,8 @@ class Dataset:
         time_fix=False,
         name=None,
     ):
-        da = clean_dims(da, xycoords).sortby('time')
+        da = clean_dims(da, xycoords)
+        da = da.sortby("time")
         if time_sel is not None:
             da = da.sortby("time").sel(time=time_sel)
             # time_fix=True
@@ -200,7 +201,7 @@ class Dataset:
             d = {k: kwargs[k]}
             da = da.sel(d).expand_dims(k).transpose(*self.da.dims)
         self.update(da)
-        
+
     def rescale_longitude(self):
         # Update Longitude coordinates
         if self.lon_is_360:

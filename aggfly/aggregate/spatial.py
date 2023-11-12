@@ -26,6 +26,7 @@ class SpatialAggregator:
             self.clim = [clim]
         else:
             self.clim = clim
+        _ = [x.rescale_longitude() for x in self.clim if x.lon_is_360]
         self.grid = weights.grid
         # self.agg_from = agg_from
         self.weights = weights.weights

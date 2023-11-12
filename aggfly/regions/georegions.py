@@ -57,7 +57,9 @@ class GeoRegions:
         return geo.boundary.plot(**kwargs)
 
     def sel(self, region_list, update=False):
-        region_list = [region_list] if not isinstance(region_list, list) else region_list
+        region_list = (
+            [region_list] if not isinstance(region_list, list) else region_list
+        )
         if update:
             shp = self
         else:

@@ -38,7 +38,6 @@ class GridWeights:
     ):
         self.grid = grid
         self.georegions = georegions
-        self.grid.clip_grid_to_georegions_extent(georegions)
         self.raster_weights = raster_weights
         self.chunks = chunks
         self.project_dir = project_dir
@@ -47,6 +46,7 @@ class GridWeights:
         self.verbose = True
         self.weights = None
         self.nonzero_weight_coords = None
+        self.nonzero_weight_mask = None
 
         self.cache = initialize_cache(self)
 
@@ -240,11 +240,23 @@ class GridWeights:
             if self.cache is not None:
                 self.cache.cache(w, gdict, extension=".feather")
             self.weights = w
-
-        self.nonzero_weight_coords = np.isin(
+        
+        nonzero_weights = np.isin(
             self.grid.index, self.weights.cell_id
-        ).nonzero()
+        )
+        self.nonzero_weight_coords = nonzero_weights.nonzero()
+        self.nonzero_weight_mask = xr.DataArray(
+            data = nonzero_weights,
+            dims = ['latitude', 'longitude'],
+            coords = {
+                'latitude': ('latitude', self.grid.latitude.values),
+                'longitude': ('longitude', self.grid.longitude.values)
+            }
+        )
+        if not self.grid.lon_is_360:
+            self.nonzero_weight_mask = array_lon_to_360(self.nonzero_weight_mask)
 
+            
     def cdict(self):
         gdict = {
             "grid": clean_object(self.grid),
@@ -254,7 +266,7 @@ class GridWeights:
                 "geometry": str(self.georegions.shp.geometry),
             },
             "simplify": self.simplify,
-            "default_to_area_weights": self.default_to_area_weights
+            "default_to_area_weights": self.default_to_area_weights,
         }
 
         if self.raster_weights is not None:
@@ -277,6 +289,10 @@ def from_objects(
     project_dir=None,
     **kwargs,
 ):
+    if clim.lon_is_360:
+        clim = deepcopy(clim)
+        clim.rescale_longitude()
+    
     if secondary_weights is None:
         if wtype == "crop":
             if crop is not None:
