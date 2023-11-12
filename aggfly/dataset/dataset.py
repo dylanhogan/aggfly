@@ -1,4 +1,6 @@
 from copy import deepcopy
+from ctypes import Union, List, Dict, Any, Optional
+from typing import Callable, Tuple
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -12,20 +14,69 @@ from dataclasses import dataclass
 from .grid import Grid
 from .grid_utils import *
 from ..regions import GeoRegions
+from shapely.geometry import BaseGeometry
 
 
 class Dataset:
+    """
+    A class used to represent a Dataset.
+
+    Attributes
+    ----------
+    da : xarray.DataArray
+        The data array to be processed.
+    name : str
+        The name of the dataset.
+    lon_is_360 : bool
+        A flag indicating if the longitude is 360.
+    coords : xarray.DataArray.coords
+        The coordinates of the data array.
+    longitude : xarray.DataArray.longitude
+        The longitude of the data array.
+    latitude : xarray.DataArray.latitude
+        The latitude of the data array.
+    grid : Grid
+        The grid of the dataset.
+    history : list
+        The history of the dataset operations.
+    georegions : GeoRegions
+        The geographical regions associated with the dataset.
+    """
+    
     def __init__(
         self,
-        da,
-        xycoords=("longitude", "latitude"),
-        time_sel=None,
-        lon_is_360=True,
-        preprocess=None,
-        clip_geom=None,
-        time_fix=False,
-        name=None,
+        da: xr.DataArray,
+        xycoords: tuple = ("longitude", "latitude"),
+        time_sel: str = None,
+        lon_is_360: bool = True,
+        preprocess: callable = None,
+        georegions: GeoRegions = None,
+        time_fix: bool = False,
+        name: str = None,
     ):
+        """
+        Constructs all the necessary attributes for the Dataset object.
+
+        Parameters
+        ----------
+        da : xarray.DataArray
+            The data array to be processed.
+        xycoords : tuple, optional
+            The x and y coordinates (default is ("longitude", "latitude")).
+        time_sel : str, optional
+            The time selection (default is None).
+        lon_is_360 : bool, optional
+            A flag indicating if the longitude is 360 (default is True).
+        preprocess : callable, optional
+            The preprocessing function (default is None).
+        georegions : GeoRegions, optional
+            The geographical regions associated with the dataset (default is None).
+        time_fix : bool, optional
+            A flag indicating if the time needs to be fixed (default is False).
+        name : str, optional
+            The name of the dataset (default is None).
+        """
+
         da = clean_dims(da, xycoords)
         da = da.sortby("time")
         if time_sel is not None:
@@ -44,16 +95,34 @@ class Dataset:
         assert np.all([x in list(self.coords) for x in ["latitude", "longitude"]])
         self.grid = Grid(self.longitude, self.latitude, self.name, self.lon_is_360)
         self.history = []
-        if clip_geom is not None:
-            self.clip_data_to_georegions_extent(clip_geom)
+        self.georegions = georegions
+        if self.georegions is not None:
+            self.clip_data_to_georegions_extent(self.georegions)
         if time_fix:
             self.update(timefix(self.da), init=True)
 
-    def rechunk(self, chunks="auto"):
+    def rechunk(self, chunks: str = "auto"):
+        """
+        Rechunks the data array.
+
+        Parameters
+        ----------
+        chunks : str, optional
+            The chunk size (default is "auto").
+        """
         # Rechunk data
         self.da = self.da.chunk(chunks)
 
-    def clip_data_to_grid(self, split=False):
+    def clip_data_to_grid(self, split: bool = False):
+        """
+        Clips the data array to the grid.
+
+        Parameters
+        ----------
+        split : bool, optional
+            A flag indicating if the large chunks should be split (default is False).
+        """
+        
         # with dask.config.set(**{"array.slicing.split_large_chunks": split}):
         self.da = self.da.sel(
             latitude=self.grid.latitude, longitude=self.grid.longitude
@@ -62,7 +131,20 @@ class Dataset:
         self.longitude = self.da.longitude
         self.latitude = self.da.latitude
 
-    def clip_data_to_georegions_extent(self, georegions, split=False, update=True):
+    def clip_data_to_georegions_extent(self, georegions: GeoRegions, split: bool = False, update: bool = True):
+        """
+        Clips the data array to the extent of the georegions.
+
+        Parameters
+        ----------
+        georegions : GeoRegions
+            The georegions to clip the data to.
+        split : bool, optional
+            A flag indicating if the large chunks should be split (default is False).
+        update : bool, optional
+            A flag indicating if the data array should be updated (default is True).
+        """
+        
         if update:
             self.grid.clip_grid_to_georegions_extent(georegions)
             self.clip_data_to_grid(split)
@@ -72,26 +154,75 @@ class Dataset:
             slf.clip_data_to_grid(split)
             return slf
 
-    def clip_data_to_bbox(self, bounds, split=False):
+    def clip_data_to_bbox(self, bounds: tuple, split: bool = False) -> None:
+        """
+        Clips the data array to the bounding box.
+
+        Parameters
+        ----------
+        bounds : tuple
+            The bounding box to clip the data to.
+        split : bool, optional
+            A flag indicating if the large chunks should be split (default is False).
+        """
         self.grid.clip_grid_to_bbox(bounds)
         self.clip_data_to_grid(split)
 
-    def compute(self, dask_array=True, chunks=None):
+    def compute(self, dask_array: bool = True, chunks: Union[str, tuple] = None) -> None:
+        """
+        Computes the data array.
+
+        Parameters
+        ----------
+        dask_array : bool, optional
+            A flag indicating if the data array should be a dask array (default is True).
+        chunks : str or tuple, optional
+            The chunk sizes for the dask array (default is None).
+        """
+        # ...
         self.update(self.da.compute(), dask_array=dask_array, chunks=chunks)
 
-    def deepcopy(self):
+    def deepcopy(self) -> 'Dataset':
+        """
+        Creates a deep copy of the Dataset object.
+
+        Returns
+        -------
+        Dataset
+            A deep copy of the Dataset object.
+        """
         return deepcopy(self)
 
     def update(
         self,
-        array,
-        drop_dims=None,
-        new_dims=None,
-        pos=0,
-        dask_array=True,
-        chunks="auto",
-        init=False,
-    ):
+        array: xr.DataArray,
+        drop_dims: List[str] = None,
+        new_dims: Dict[str, Any] = None,
+        pos: int = 0,
+        dask_array: bool = True,
+        chunks: Union[str, tuple] = "auto",
+        init: bool = False,
+    ) -> None:
+        """
+        Updates the data array.
+
+        Parameters
+        ----------
+        array : xarray.DataArray
+            The new data array.
+        drop_dims : list of str, optional
+            The dimensions to drop (default is None).
+        new_dims : dict, optional
+            The new dimensions (default is None).
+        pos : int, optional
+            The position to insert the new dimensions at (default is 0).
+        dask_array : bool, optional
+            A flag indicating if the data array should be a dask array (default is True).
+        chunks : str or tuple, optional
+            The chunk sizes for the dask array (default is "auto").
+        init : bool, optional
+            A flag indicating if this is the initial update (default is False).
+        """
         if not init:
             old_coords = self.da.coords
 
@@ -145,7 +276,32 @@ class Dataset:
                 self.da = xr.DataArray(data=array, dims=ndims, coords=cdict)
 
     @lru_cache(maxsize=None)
-    def interior_cells(self, georegions, buffer=None, dtype="georegions", maxsize=None):
+    def interior_cells(
+        self,
+        georegions: GeoRegions,
+        buffer: Optional[float] = None,
+        dtype: str = "georegions",
+        maxsize: Optional[int] = None,
+    ) -> Union[xr.DataArray, gpd.GeoDataFrame, GeoRegions]:
+        """
+        Returns the interior cells of the dataset.
+
+        Parameters
+        ----------
+        georegions : GeoRegions
+            The geographical regions to consider.
+        buffer : float, optional
+            The buffer size (default is the grid resolution).
+        dtype : str, optional
+            The output data type (default is "georegions").
+        maxsize : int, optional
+            The maximum size of the output (default is None).
+
+        Returns
+        -------
+        xarray.DataArray or geopandas.GeoDataFrame or GeoRegions
+            The interior cells.
+        """
         if buffer is None:
             buffer = self.grid.resolution
 
@@ -195,14 +351,25 @@ class Dataset:
         else:
             return NotImplementedError
 
-    def sel(self, **kwargs):
+    def sel(self, **kwargs) -> None:
+        """
+        Selects data by label along the specified dimensions.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            The dimensions and labels to select.
+        """
         da = self.da
         for k in kwargs.keys():
             d = {k: kwargs[k]}
             da = da.sel(d).expand_dims(k).transpose(*self.da.dims)
         self.update(da)
 
-    def rescale_longitude(self):
+    def rescale_longitude(self) -> None:
+        """
+        Rescales the longitude of the dataset.
+        """
         # Update Longitude coordinates
         if self.lon_is_360:
             self.update(array_lon_to_180(self.da))
@@ -215,7 +382,22 @@ class Dataset:
         self.latitude = self.da.latitude
         self.grid = Grid(self.longitude, self.latitude, self.name, self.lon_is_360)
 
-    def power(self, exp, update=False):
+    def power(self, exp: int, update: bool = False) -> Optional['Dataset']:
+        """
+        Raises the data array to the specified power.
+
+        Parameters
+        ----------
+        exp : int
+            The power to raise the data array to.
+        update : bool, optional
+            A flag indicating if the data array should be updated (default is False).
+
+        Returns
+        -------
+        Dataset, optional
+            The updated Dataset object (only if update is False).
+        """
         arr = self.da.data.map_blocks(_power, exp)
         if update:
             self.update(arr)
@@ -226,7 +408,15 @@ class Dataset:
             slf.history.append(f"power{exp}")
             return slf
 
-    def interact(self, inter):
+    def interact(self, inter: Union['Dataset', xr.DataArray]) -> None:
+        """
+        Interacts the data array with another data array.
+
+        Parameters
+        ----------
+        inter : Dataset or xarray.DataArray
+            The data array to interact with.
+        """
         if type(inter) == Dataset:
             inter = inter.da.data
 
@@ -247,18 +437,49 @@ def _interact(array, inter):
 
 
 def from_path(
-    path,
-    var,
-    xycoords=("longitude", "latitude"),
-    time_sel=None,
-    clip_geom=None,
-    lon_is_360=True,
-    time_fix=False,
-    preprocess=None,
-    name=None,
-    chunks={"time": "auto", "latitude": -1, "longitude": -1},
+    path: Union[str, List[str]],
+    var: str,
+    xycoords: Tuple[str, str] = ("longitude", "latitude"),
+    time_sel: Optional[str] = None,
+    clip_geom: Optional[BaseGeometry] = None,
+    lon_is_360: bool = True,
+    time_fix: bool = False,
+    preprocess: Optional[Callable[[xr.Dataset], xr.Dataset]] = None,
+    name: Optional[str] = None,
+    chunks: Dict[str, Union[str, int]] = {"time": "auto", "latitude": -1, "longitude": -1},
     **kwargs,
-):
+) -> 'Dataset':
+    """
+    Loads a Dataset from a file or a set of files.
+
+    Parameters
+    ----------
+    path : str or list of str
+        The file path or paths.
+    var : str
+        The variable to load.
+    xycoords : tuple of str, optional
+        The names of the x and y coordinates (default is ("longitude", "latitude")).
+    time_sel : str, optional
+        The time selection (default is None).
+    clip_geom : shapely.geometry.BaseGeometry, optional
+        The geometry to clip the data to (default is None).
+    lon_is_360 : bool, optional
+        A flag indicating if the longitude is scaled from 0 to 360 (default is True).
+    time_fix : bool, optional
+        A flag indicating if the time should be fixed (default is False). [deprecated]
+    preprocess : callable, optional
+        A function to preprocess the data when loaded (default is None).
+    name : str, optional
+        The name of the Dataset (default is None).
+    chunks : dict, optional
+        The chunk sizes (default is {"time": "auto", "latitude": -1, "longitude": -1}).
+
+    Returns
+    -------
+    Dataset
+        The loaded Dataset.
+    """
     if "*" in path or type(path) is list:
         with dask.config.set(**{"array.slicing.split_large_chunks": False}):
             array = xr.open_mfdataset(
@@ -301,29 +522,3 @@ def get_path(name):
     else:
         raise NotImplementedError
 
-
-#  NEED TO DO THIS (I THINK)
-# self.dda = dask.array.from_zarr(self.zarr_path, component=climvar, chunks=chunks)
-# if self.climdata == "era5l":
-#     self.array.coords['longitude'] = (self.array.coords['longitude'] + 180) % 360 - 180
-#     self.array.transpose("latitude", "longitude", "time")
-
-# lon_ind = np.where(np.in1d(self.xda.longitude.values, grid.longitude))[0]
-# lat_ind = np.where(np.in1d(self.xda.latitude.values, grid.latitude))[0]
-# self.dda = self.dda[lat_ind,:,:,:,:][:,lon_ind,:,:,:]
-#         bounds = self.grid_weights.georegions.shp.total_bounds
-#         lon = climate_data.data.longitude
-#         lat = climate_data.data.latitude
-
-#         inlon = np.logical_and(
-#             lon >= bounds[0],
-#             lon <= bounds[2])
-#         inlon_b = [lon[inlon].min(), lon[inlon].max()]
-
-#         inlat = np.logical_and(
-#             lat >= bounds[1],
-#             lat <= bounds[3])
-#         inlat_b = [lat[inlat].min(), lat[inlat].max()]
-
-#         self.longitude, self.latitude = grid_centroids(inlon_b, inlat_b, self.resolution)
-#         self.centroids = reformat_grid(self.longitude, self.latitude, datatype='dask')[0]

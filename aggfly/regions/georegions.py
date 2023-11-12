@@ -1,14 +1,12 @@
+from ctypes import Union
+from typing import List, Optional
 import numpy as np
-import pandas as pd
-import xarray as xr
+import matplotlib as mpl
 
-# import pygeos
 import geopandas as gpd
 import dask_geopandas
-import os
 import dask
 import dask.array
-from functools import lru_cache
 from copy import deepcopy
 import warnings
 
@@ -16,9 +14,47 @@ from .shp_utils import *
 
 
 class GeoRegions:
+    """
+    A class used to represent geographical regions.
+
+    Attributes
+    ----------
+    shp : geopandas.GeoDataFrame
+        The shapefile of the geographical regions.
+    regionid : str
+        The identifier of the regions.
+    regions : geopandas.GeoSeries
+        The series of regions.
+    name : str
+        The name of the geographical regions.
+    path : str
+        The path to the shapefile.
+    """
+    
     def __init__(
-        self, shp=None, regionid="state", region_list=None, name=None, path=None
+        self,
+        shp: gpd.GeoDataFrame = None,
+        regionid: str = "state",
+        region_list: list = None,
+        name: str = None,
+        path: str = None
     ):
+        """
+        Constructs all the necessary attributes for the GeoRegions object.
+
+        Parameters
+        ----------
+        shp : geopandas.GeoDataFrame, optional
+            The shapefile of the geographical regions (default is None).
+        regionid : str, optional
+            The identifier of the regions (default is "state").
+        region_list : list, optional
+            The list of regions to select (default is None).
+        name : str, optional
+            The name of the geographical regions (default is None).
+        path : str, optional
+            The path to the shapefile (default is None).
+        """
         self.shp = shp.reset_index(drop=True)
         self.regionid = regionid
         self.regions = self.shp[self.regionid]
@@ -27,14 +63,30 @@ class GeoRegions:
         self.name = name
         self.path = path
 
-    # @lru_cache(maxsize=None)
-    def poly_array(self, buffer=0, datatype="array", chunks=20):
-        # poly = pygeos.from_shapely(self.shp.geometry)
+    def poly_array(
+        self,
+        buffer: int = 0,
+        datatype: str = "array",
+        chunks: int = 20
+    ) -> Union[np.ndarray, dask.array.Array]:
+        """
+        Returns a polygon array of the geographical regions.
+
+        Parameters
+        ----------
+        buffer : int, optional
+            The buffer size (default is 0).
+        datatype : str, optional
+            The type of the data (default is "array").
+        chunks : int, optional
+            The number of chunks (default is 20).
+
+        Returns
+        -------
+        Union[np.ndarray, dask.array.Array]
+            The polygon array.
+        """
         if buffer != 0:
-            # bufferPoly = pygeos.buffer(poly, buffer)
-            # print(len(poly))
-            # dask_poly = dask.array.from_array(poly, chunks=max(int(len(poly) / 50), 1))
-            # bufferPoly = dask_poly.map_blocks(pygeos.buffer, buffer, dtype=type(poly[0])).compute()
             ddf = dask_geopandas.from_geopandas(self.shp, npartitions=chunks)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -52,11 +104,34 @@ class GeoRegions:
         else:
             raise NotImplementedError
 
-    def plot_region(self, region, **kwargs):
+    def plot_region(self, region: str, **kwargs) -> mpl.pyplot:
+        """
+        Plots the boundary of a region.
+
+        Parameters
+        ----------
+        region : str
+            The region to plot.
+
+        Returns
+        -------
+        mpl.pyplot
+            The plot of the region boundary.
+        """
         geo = self.shp.loc[self.regions == region].geometry
         return geo.boundary.plot(**kwargs)
 
-    def sel(self, region_list, update=False):
+    def sel(self, region_list: Union[str, list], update: bool = False):
+        """
+        Selects regions.
+
+        Parameters
+        ----------
+        region_list : Union[str, list]
+            The list of regions to select.
+        update : bool, optional
+            A flag indicating if the regions should be updated (default is False).
+        """
         region_list = (
             [region_list] if not isinstance(region_list, list) else region_list
         )
@@ -72,7 +147,24 @@ class GeoRegions:
         return shp
 
 
-def from_path(path, regionid, region_list=None):
+def from_path(path: str, regionid: str, region_list: Optional[List[str]] = None) -> 'GeoRegions':
+    """
+    Loads a GeoRegions object from a shapefile.
+
+    Parameters
+    ----------
+    path : str
+        The path to the shapefile.
+    regionid : str
+        The identifier for the region.
+    region_list : list of str, optional
+        A list of regions to include (default is None, which means all regions are included).
+
+    Returns
+    -------
+    GeoRegions
+        The loaded GeoRegions object.
+    """
     shp = gpd.read_file(path)
     return GeoRegions(shp, regionid, region_list)
 
