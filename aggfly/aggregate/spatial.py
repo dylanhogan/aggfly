@@ -47,7 +47,6 @@ class SpatialAggregator:
         return self.func(arr, weight, *self.args, **kwargs)
 
     def compute(self, npartitions=30):
-        print("COMPUTING")
         clim_ds = dask.compute([x.da for x in self.clim])[0]
         clim_ds = xr.combine_by_coords(
             [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]

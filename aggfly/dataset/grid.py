@@ -6,6 +6,7 @@ import geopandas as gpd
 import os
 import dask
 import dask.array
+import dask_geopandas
 from functools import lru_cache
 import warnings
 

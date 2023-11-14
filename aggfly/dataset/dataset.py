@@ -1,12 +1,10 @@
 from copy import deepcopy
-from ctypes import Union, List, Dict, Any, Optional
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Union, List, Dict, Any, Optional
 import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
 import numba
-import zarr
 import dask
 import dask.array
 from dataclasses import dataclass
@@ -14,7 +12,6 @@ from dataclasses import dataclass
 from .grid import Grid
 from .grid_utils import *
 from ..regions import GeoRegions
-from shapely.geometry import BaseGeometry
 
 
 class Dataset:
@@ -123,7 +120,6 @@ class Dataset:
             A flag indicating if the large chunks should be split (default is False).
         """
 
-        # with dask.config.set(**{"array.slicing.split_large_chunks": split}):
         self.da = self.da.sel(
             latitude=self.grid.latitude, longitude=self.grid.longitude
         )
@@ -412,7 +408,9 @@ class Dataset:
             slf.history.append(f"power{exp}")
             return slf
 
-    def interact(self, inter: Union["Dataset", xr.DataArray]) -> None:
+    def interact(
+        self, inter: Union["Dataset", xr.DataArray], update: bool = False
+    ) -> Optional["Dataset"]:
         """
         Interacts the data array with another data array.
 
@@ -420,14 +418,22 @@ class Dataset:
         ----------
         inter : Dataset or xarray.DataArray
             The data array to interact with.
+        update : bool, optional
+            A flag indicating if the data array should be updated (default is False).
         """
         if type(inter) == Dataset:
             inter = inter.da.data
 
         assert self.da.data.shape == inter.shape
         arr = self.da.data.map_blocks(_interact, inter)
-        self.update(arr)
-        self.history.append("interacted")
+        if update:
+            self.update(arr)
+            self.history.append("interacted")
+        else:
+            slf = self.deepcopy()
+            slf.update(arr)
+            slf.history.append("interacted")
+            return slf
 
 
 @numba.njit(fastmath=True, parallel=True)
@@ -440,23 +446,23 @@ def _interact(array, inter):
     return np.multiply(array, inter)
 
 
-def from_path(
+def dataset_from_path(
     path: Union[str, List[str]],
     var: str,
     xycoords: Tuple[str, str] = ("longitude", "latitude"),
     time_sel: Optional[str] = None,
-    clip_geom: Optional[BaseGeometry] = None,
+    georegions: Optional[GeoRegions] = None,
     lon_is_360: bool = True,
     time_fix: bool = False,
     preprocess: Optional[Callable[[xr.Dataset], xr.Dataset]] = None,
     name: Optional[str] = None,
     chunks: Dict[str, Union[str, int]] = {
-        "time": "auto",
+        "time": 24,
         "latitude": -1,
         "longitude": -1,
     },
     **kwargs,
-) -> "Dataset":
+) -> Dataset:
     """
     Loads a Dataset from a file or a set of files.
 
@@ -470,8 +476,9 @@ def from_path(
         The names of the x and y coordinates (default is ("longitude", "latitude")).
     time_sel : str, optional
         The time selection (default is None).
-    clip_geom : shapely.geometry.BaseGeometry, optional
-        The geometry to clip the data to (default is None).
+    georegions : GeoRegions, optional
+        The geographical regions associated with the dataset, used to clip
+        dataset to regional bounds (default is None).
     lon_is_360 : bool, optional
         A flag indicating if the longitude is scaled from 0 to 360 (default is True).
     time_fix : bool, optional
@@ -498,7 +505,7 @@ def from_path(
 
     else:
         if ".zarr" in path:
-            array = xr.open_zarr(path, **kwargs)[var]
+            array = xr.open_dataset(path, engine='zarr', chunks=chunks, **kwargs)[var]
         else:
             array = xr.open_dataset(path, chunks=chunks, **kwargs)[var]
 
@@ -508,7 +515,7 @@ def from_path(
         time_sel=time_sel,
         lon_is_360=lon_is_360,
         preprocess=preprocess,
-        clip_geom=clip_geom,
+        georegions=georegions,
         time_fix=time_fix,
         name=name,
     )

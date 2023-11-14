@@ -1,7 +1,6 @@
-from ctypes import Union
-from typing import List, Optional
+from typing import List, Optional, Union
 import numpy as np
-import matplotlib as mpl
+import matplotlib.pyplot as mpl
 
 import geopandas as gpd
 import dask_geopandas
@@ -34,7 +33,7 @@ class GeoRegions:
     def __init__(
         self,
         shp: gpd.GeoDataFrame = None,
-        regionid: str = "state",
+        regionid: str = None,
         region_list: list = None,
         name: str = None,
         path: str = None,
@@ -47,7 +46,7 @@ class GeoRegions:
         shp : geopandas.GeoDataFrame, optional
             The shapefile of the geographical regions (default is None).
         regionid : str, optional
-            The identifier of the regions (default is "state").
+            The identifier of the regions (default is None).
         region_list : list, optional
             The list of regions to select (default is None).
         name : str, optional
@@ -101,7 +100,7 @@ class GeoRegions:
         else:
             raise NotImplementedError
 
-    def plot_region(self, region: str, **kwargs) -> mpl.pyplot:
+    def plot_region(self, region: str, **kwargs):
         """
         Plots the boundary of a region.
 
@@ -144,7 +143,7 @@ class GeoRegions:
         return shp
 
 
-def from_path(
+def georegions_from_path(
     path: str, regionid: str, region_list: Optional[List[str]] = None
 ) -> "GeoRegions":
     """
@@ -168,7 +167,20 @@ def from_path(
     return GeoRegions(shp, regionid, region_list)
 
 
-def from_name(name="usa", region_list=None):
+def georegions_from_name(name="usa", region_list=None):
+    """
+    Returns a GeoRegions object based on the given name and region list.
+
+    Args:
+        name (str): The name of the GeoRegions object to create. Valid values are "usa", "counties", and "global".
+        region_list (list): A list of region names to include in the GeoRegions object. If None, all regions are included.
+
+    Returns:
+        GeoRegions: A GeoRegions object based on the given name and region list.
+
+    Raises:
+        NotImplementedError: If an invalid name is provided.
+    """
     if name == "usa":
         return GeoRegions(open_usa_shp(), "state", region_list, name=name)
     elif name == "counties":

@@ -86,6 +86,7 @@ class TemporalAggregator:
             # Update object and return result
             if type(clim) == Dataset:
                 [x.update(y) for x, y in zip(clim_list, out)]
+                [x.history.append(self.groupby) for x in clim_list]
                 if len(clim_list) == 1:
                     return clim_list[0]
                 else:
@@ -96,6 +97,7 @@ class TemporalAggregator:
             # Update object and return result
             if type(clim) == Dataset:
                 clim.update(out)
+                clim.history.append(self.groupby)
                 return clim
             else:
                 return out
