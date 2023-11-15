@@ -4,7 +4,11 @@ from .aggregate import (
     aggregate_dataset,
     aggregate_time,
     aggregate_space,
+    distributed_client,
+    is_distributed,
+    start_dask_client,
+    shutdown_dask_client
 )
 from .dataset import Dataset, dataset_from_path
-from .weights import CropWeights, PopWeights, GridWeights, weights_from_objects
+from .weights import CropWeights, PopWeights, GridWeights, weights_from_objects, pop_weights_from_path, crop_weights_from_path
 from .regions import GeoRegions, georegions_from_path, georegions_from_name

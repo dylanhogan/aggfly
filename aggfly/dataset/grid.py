@@ -18,11 +18,10 @@ class Grid:
         self.longitude = longitude
         self.latitude = latitude
         self.lon_array, self.lat_array = np.meshgrid(self.longitude, self.latitude)
-        self.index = np.indices(self.lon_array.flatten().shape).reshape(
-            self.lon_array.shape
-        )
         self.name = name
         self.lon_is_360 = lon_is_360
+        self.index = self.get_index()
+        self.cell_id = self.index.flatten()
         self.resolution = self.get_resolution()
         self.cell_area = self.get_cell_area()
 
@@ -37,6 +36,15 @@ class Grid:
     def get_cell_area(self):
         cell = pygeos.box(0, 0, self.resolution, self.resolution)
         return pygeos.area(cell)
+    
+    def get_index(self):
+        if self.lon_is_360:
+            longitude = lon_to_180(self.longitude)
+        else:
+            longitude = self.longitude
+        
+        lon_array, lat_array = np.meshgrid(longitude, self.latitude)
+        return(np.indices(lon_array.flatten().shape).reshape(lon_array.shape))
 
     @lru_cache(maxsize=None)
     def clip_grid_to_georegions_extent(self, georegions):

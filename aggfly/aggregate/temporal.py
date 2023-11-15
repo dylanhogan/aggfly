@@ -1,6 +1,8 @@
 from functools import lru_cache, partial
 from copy import deepcopy
 import datetime
+import os
+os.environ['USE_PYGEOS'] = '0'
 
 import numpy as np
 import pandas as pd
@@ -17,7 +19,7 @@ from numba import prange
 import zarr
 
 from .aggregate_utils import *
-from ..dataset.dataset import Dataset
+from ..dataset import Dataset, array_lon_to_360
 
 
 class TemporalAggregator:
@@ -67,6 +69,8 @@ class TemporalAggregator:
         ds = deepcopy(clim.da)
 
         if weights is not None:
+            if clim.grid.lon_is_360:
+                weights.nonzero_weight_mask = array_lon_to_360(weights.nonzero_weight_mask)
             ds = ds.where(weights.nonzero_weight_mask)
 
         if self.multi_dd:

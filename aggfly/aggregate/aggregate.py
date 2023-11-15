@@ -15,18 +15,18 @@ Functions:
     Aggregate a dataset over time and space.
 """
 
-from functools import lru_cache, partial
-from copy import deepcopy
 from typing import List, Dict, Union, Tuple
 import pandas as pd
+import dask
+from dask.distributed import progress
 
 from .temporal import TemporalAggregator
 from .spatial import SpatialAggregator
 from ..dataset import Dataset
 from ..weights import GridWeights
+from .aggregate_utils import distributed_client, is_distributed
 
 from dask.diagnostics import ProgressBar
-
 ProgressBar().register()
 
 
@@ -124,7 +124,7 @@ def aggregate_time(
 
 
 def aggregate_space(
-    dataset_dict: Dict[str, Dataset], weights: GridWeights
+    dataset_dict: Dict[str, Dataset], weights: GridWeights, **kwargs
 ) -> pd.DataFrame:
     """
     Aggregate a dictionary of datasets over space.
@@ -137,9 +137,21 @@ def aggregate_space(
     Returns:
         df: A dataframe containing the aggregated data.
     """
+    
+    dataset_list = list(dataset_dict.values())
+    
+    client = distributed_client()
+    if client is None:
+        npartitions=1
+    else:
+        npartitions=len(client.scheduler_info()["workers"])
+        da_list = dask.persist([x.da for x in dataset_list])[0]
+        progress(da_list)
+        for i, dataset in enumerate(dataset_list):
+            dataset.da = da_list[i]
     df = SpatialAggregator(
-        list(dataset_dict.values()), weights, names=list(dataset_dict.keys())
-    ).compute()
+        dataset_list, weights, names=list(dataset_dict.keys()),
+    ).compute(npartitions=npartitions)
     return df
 
 
@@ -162,7 +174,9 @@ def aggregate_dataset(
     Returns:
         df: A dataframe containing the aggregated data.
     """
+        
     dataset_dict = aggregate_time(dataset, weights, aggregator_dict, **kwargs)
+    
     df = aggregate_space(dataset_dict, weights)
     df = (
         weights.georegions.shp[[weights.georegions.regionid]].merge(

@@ -21,6 +21,7 @@ from . import CropWeights, PopWeights
 from . import crop_weights, pop_weights
 from ..utils import *
 from ..cache import *
+from ..aggregate import is_distributed, shutdown_dask_client, start_dask_client
 
 
 class GridWeights:
@@ -58,6 +59,7 @@ class GridWeights:
             Whether to print verbose output (default is True).
         """
         self.grid = grid
+        assert not self.grid.lon_is_360
         self.georegions = georegions
         self.raster_weights = raster_weights
         self.chunks = chunks
@@ -100,6 +102,12 @@ class GridWeights:
                 pprint(gdict)
             self.weights = cache
         else:
+            if is_distributed():
+                print("Dask client detected, which is not compatible with weight calculation.")
+                print("Stopping Dask client for weight calculation")
+                dask_args = shutdown_dask_client()
+                restart = True
+                
             if self.raster_weights is None:
                 w = self.get_area_weights()
                 w["weight"] = w["area_weight"]
@@ -108,6 +116,9 @@ class GridWeights:
             if self.cache is not None:
                 self.cache.cache(w, gdict, extension=".feather")
             self.weights = w
+            if restart:
+                print('Restarting distributed Dask client')
+                client = start_dask_client(**dask_args)
 
         nonzero_weights = np.isin(self.grid.index, self.weights.cell_id)
         self.nonzero_weight_coords = nonzero_weights.nonzero()
@@ -119,8 +130,7 @@ class GridWeights:
                 "longitude": ("longitude", self.grid.longitude.values),
             },
         )
-        if not self.grid.lon_is_360:
-            self.nonzero_weight_mask = array_lon_to_360(self.nonzero_weight_mask)
+
 
     @lru_cache(maxsize=None)
     def simplify_poly_array(self):
@@ -160,8 +170,7 @@ class GridWeights:
             gpd.GeoDataFrame(geometry=poly_array), npartitions=10
         )
         mask = fc.sjoin(poly_array, predicate="within").compute()
-
-        # kjdbfsk
+        
         return mask
 
     def get_border_cells(
