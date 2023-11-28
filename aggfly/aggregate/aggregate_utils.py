@@ -1,15 +1,3 @@
-# ------------------------------------------------------------------------
-# Description:
-# This file contains utility functions for the aggregate module.
-#
-# Functions:
-# - is_distributed() -> bool:
-#     Returns True if the code is running in a distributed environment, False otherwise.
-#
-# - distributed_client() -> dask.distributed.Client:
-#     Returns the global Dask distributed client object.
-# ------------------------------------------------------------------------
-# Imports
 import dask.distributed
 from dask.distributed import Client
 import logging
@@ -43,30 +31,27 @@ def distributed_client():
     return client 
 
         
-def start_dask_client(n_workers: int = 2, threads_per_worker: int = 2, silence_logs='error', **kwargs):
+def start_dask_client(n_workers: int = 2, threads_per_worker: int = 2, **kwargs):
     """
     Start a dask distributed cluster.
 
     Args:
         n_workers (int, optional): The number of workers to use. Defaults to 2.
+        threads_per_worker (int, optional): The number of threads per worker. Defaults to 2.
+        **kwargs: Additional keyword arguments to pass to the dask Client constructor.
 
     Returns:
         client: A dask distributed client.
     """
-    if silence_logs=='error':
-        silence_logs = logging.ERROR
-    
     client = Client(
         n_workers=n_workers,
         threads_per_worker=threads_per_worker,
-        silence_logs=silence_logs,
         **kwargs
     )
         
     arg_dict = {
         "n_workers": n_workers, 
         "threads_per_worker": threads_per_worker,
-        "silence_logs": silence_logs
     }
     all_dict = {**arg_dict, **kwargs}
     for k in all_dict.keys():

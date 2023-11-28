@@ -18,16 +18,17 @@ Functions:
 from typing import List, Dict, Union, Tuple
 import pandas as pd
 import dask
-from dask.distributed import progress
+from dask.distributed import LocalCluster, Client, progress
 
 from .temporal import TemporalAggregator
 from .spatial import SpatialAggregator
 from ..dataset import Dataset
 from ..weights import GridWeights
-from .aggregate_utils import distributed_client, is_distributed
+from .aggregate_utils import distributed_client, is_distributed, start_dask_client, shutdown_dask_client
 
-from dask.diagnostics import ProgressBar
-ProgressBar().register()
+
+# from dask.diagnostics import ProgressBar
+# ProgressBar().register()
 
 
 def transform_dataset(
@@ -124,7 +125,8 @@ def aggregate_time(
 
 
 def aggregate_space(
-    dataset_dict: Dict[str, Dataset], weights: GridWeights, **kwargs
+    dataset_dict: Dict[str, Dataset], weights: GridWeights,
+    npartitions=None, **kwargs
 ) -> pd.DataFrame:
     """
     Aggregate a dictionary of datasets over space.
@@ -138,10 +140,11 @@ def aggregate_space(
         df: A dataframe containing the aggregated data.
     """
     
+    
     dataset_list = list(dataset_dict.values())
     
     client = distributed_client()
-    if client is None:
+    if client is None and npartitions is None:
         npartitions=1
     else:
         npartitions=len(client.scheduler_info()["workers"])
@@ -159,6 +162,11 @@ def aggregate_dataset(
     dataset: Dataset,
     weights: GridWeights,
     aggregator_dict: Dict[str, Union[List[Tuple], TemporalAggregator]] = None,
+    n_workers = 50,
+    threads_per_worker = 1,
+    processes = True,
+    memory_limit=None,
+    cluster_args = {},
     **kwargs,
 ) -> pd.DataFrame:
     """
@@ -174,16 +182,32 @@ def aggregate_dataset(
     Returns:
         df: A dataframe containing the aggregated data.
     """
-        
-    dataset_dict = aggregate_time(dataset, weights, aggregator_dict, **kwargs)
     
-    df = aggregate_space(dataset_dict, weights)
-    df = (
-        weights.georegions.shp[[weights.georegions.regionid]].merge(
-            df, left_index=True, right_on="region_id"
-        )
-    ).drop(columns="region_id")
+    # client = start_dask_client(
+    #     n_workers=n_workers,
+    #     threads_per_worker=threads_per_worker, 
+    #     **cluster_args
+    # )
+    with LocalCluster(n_workers=n_workers,
+        processes=processes,
+        threads_per_worker=threads_per_worker,
+        memory_limit=memory_limit,
+        **cluster_args
+    ) as cluster, Client(cluster) as client:
+    
+        dataset_dict = aggregate_time(dataset, weights, aggregator_dict, **kwargs)
+        
+        df = aggregate_space(dataset_dict, weights)
+        df = (
+            weights.georegions.shp[[weights.georegions.regionid]].merge(
+                df, left_index=True, right_on="region_id"
+            )
+        ).drop(columns="region_id")
+        
+        client.shutdown()
 
+    # _ = shutdown_dask_client()
+    
     return df
 
 

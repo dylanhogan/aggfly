@@ -45,7 +45,7 @@ class PopWeights:
             cache = None
 
         if cache is not None:
-            print(f"Loading rescaled {self.crop} weights from cache")
+            print(f"Loading rescaled pop weights from cache")
             self.raster = cache
             if verbose:
                 print("Cache dictionary:")

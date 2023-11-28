@@ -17,8 +17,14 @@ import dask
 from dask.distributed import progress
 
 from .aggregate_utils import distributed_client, is_distributed
-from ..dataset.dataset import Dataset
+from ..dataset import Dataset
+from ..weights import GridWeights
 
+import logging
+from typing import List, Union
+import dask.dataframe
+import pandas as pd
+import xarray as xr
 
 class SpatialAggregator:
     """
@@ -26,34 +32,34 @@ class SpatialAggregator:
 
     Parameters:
     -----------
-    clim : list or xarray.DataArray
-        A list of xarray.DataArray objects containing climate data to be aggregated.
-    weights : xarray.Dataset
-        A xarray.Dataset object containing the weights to be used for aggregation.
+    clim : list or Dataset
+        A list of Dataset objects containing climate data to be aggregated.
+    weights : GridWeights 
+        A GridWeights object containing the weights to be used for aggregation.
     names : str or list of str, optional
         The name(s) of the climate variable(s) to be aggregated. Default is "climate".
 
     Methods:
     --------
-    compute(npartitions=30)
+    compute(npartitions: int = 30) -> pd.DataFrame:
         Compute the spatial aggregation.
 
-    weighted_average(ddf, names)
+    weighted_average(ddf: dask.dataframe.DataFrame, names: List[str]) -> pd.DataFrame:
         Compute the weighted average of the climate data.
 
     """
-    def __init__(self, clim, weights, names="climate"):
+    def __init__(self, dataset: Union[list, Dataset], weights: GridWeights, names: Union[str, List[str]] = "climate") -> None:
         """
         Initialize a SpatialAggregator object.
 
         Parameters
         ----------
-        clim : list or Dataset
+        dataset : list or Dataset
             A list of Dataset objects, each containing the climate data
             for a different temporal aggregation. Alternatively, a single Dataset
             object can be passed.
-        weights : Weights
-            A Weights object containing the spatial weights used to
+        weights : GridWeights
+            A GridWeights object containing the spatial weights used to
             aggregate the climate data.
         names : str or list of str, optional
             The name(s) of the climate variable(s) being aggregated. If a single
@@ -65,16 +71,16 @@ class SpatialAggregator:
         None
 
         """
-        if type(clim) != list:
-            self.clim = [clim]
+        if type(dataset) != list:
+            self.dataset = [dataset]
         else:
-            self.clim = clim
-        _ = [x.rescale_longitude() for x in self.clim if x.lon_is_360]
+            self.dataset = dataset
+        _ = [x.rescale_longitude() for x in self.dataset if x.lon_is_360]
         self.grid = weights.grid
         self.weights = weights.weights
         self.names = [names] if isinstance(names, str) else names
 
-    def compute(self, npartitions=30):
+    def compute(self, npartitions: int = 30) -> pd.DataFrame:
         """
         Compute the weighted average of the climate data over the regions defined by the weights.
 
@@ -88,7 +94,8 @@ class SpatialAggregator:
         aggregated : pandas.DataFrame
             A DataFrame containing the weighted average of the climate data over the regions and time periods.
         """
-        clim_ds = dask.compute([x.da for x in self.clim])[0]
+        # with dask.config.set({"multiprocessing.context": "forkserver"}):
+        clim_ds = dask.compute([x.da for x in self.dataset])[0] #, scheduler='processes'
         clim_ds = xr.combine_by_coords(
             [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]
         )
@@ -113,25 +120,13 @@ class SpatialAggregator:
             .reset_index()
             .rename(columns={"index": "group_ID"})
         )
-
+        
         merged_df = merged_df.merge(group_key, on=["region_id", "time"]).set_index(
             "group_ID"
         )[["weight", *self.names]]
 
         ddf = dask.dataframe.from_pandas(merged_df, npartitions=50)
-        
-        client = distributed_client()
-        if client is not None:
-            future = client.scatter(ddf)
-            # disable user warnings for this call
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                out = client.submit(self.weighted_average, future, self.names)
-                progress(out)
-                out = out.result().compute()
-        else:
-            out = self.weighted_average(ddf, self.names)
-
+        out = self.weighted_average(ddf, self.names).compute()
         aggregated = (
             out.merge(group_key, how="right", left_index=True, right_on="group_ID")
             .drop(columns="group_ID")[["region_id", "time"] + self.names]
@@ -141,7 +136,7 @@ class SpatialAggregator:
         return aggregated
     
     @staticmethod
-    def weighted_average(ddf, names):
+    def weighted_average(ddf: dask.dataframe.DataFrame, names: List[str]) -> pd.DataFrame:
         out = ddf[names].mul(ddf["weight"], axis=0)
         out["weight"] = ddf["weight"]
         out = out.groupby(out.index).sum()

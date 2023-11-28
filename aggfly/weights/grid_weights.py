@@ -79,6 +79,14 @@ class GridWeights:
         """
         gdict = {"func": "weights"}
 
+        if is_distributed():
+            print("Dask client detected, which is not compatible with weight calculation.")
+            print("Stopping Dask client for weight calculation")
+            dask_args = shutdown_dask_client()
+            restart = True
+        else:
+            restart = False
+        
         if self.simplify is not None:
             self.simplify_poly_array()
 
@@ -102,11 +110,6 @@ class GridWeights:
                 pprint(gdict)
             self.weights = cache
         else:
-            if is_distributed():
-                print("Dask client detected, which is not compatible with weight calculation.")
-                print("Stopping Dask client for weight calculation")
-                dask_args = shutdown_dask_client()
-                restart = True
                 
             if self.raster_weights is None:
                 w = self.get_area_weights()
@@ -116,9 +119,6 @@ class GridWeights:
             if self.cache is not None:
                 self.cache.cache(w, gdict, extension=".feather")
             self.weights = w
-            if restart:
-                print('Restarting distributed Dask client')
-                client = start_dask_client(**dask_args)
 
         nonzero_weights = np.isin(self.grid.index, self.weights.cell_id)
         self.nonzero_weight_coords = nonzero_weights.nonzero()
@@ -130,6 +130,10 @@ class GridWeights:
                 "longitude": ("longitude", self.grid.longitude.values),
             },
         )
+        
+        if restart:
+            print('Restarting distributed Dask client')
+            client = start_dask_client(**dask_args)
 
 
     @lru_cache(maxsize=None)
