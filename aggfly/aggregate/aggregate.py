@@ -27,8 +27,8 @@ from ..weights import GridWeights
 from .aggregate_utils import distributed_client, is_distributed, start_dask_client, shutdown_dask_client
 
 
-# from dask.diagnostics import ProgressBar
-# ProgressBar().register()
+from dask.diagnostics import ProgressBar
+ProgressBar().register()
 
 
 def transform_dataset(
@@ -93,13 +93,15 @@ def aggregate_time(
             raise ValueError("No arguments provided.")
         else:
             aggregator_dict = kwargs
-
+    print('hello')
+    print(aggregator_dict)
     out_dict = {}
     for key, value in aggregator_dict.items():
         keys = [key]
         data = [dataset.deepcopy()]
-        for key2, value2 in value.items():
+        for key2, value2 in value:
             if key2 == "aggregate":
+                print(value2)
                 if not isinstance(value2, TemporalAggregator):
                     value2 = TemporalAggregator(**value2)
                 data = [value2.execute(x, weights) for x in data]
@@ -188,23 +190,16 @@ def aggregate_dataset(
     #     threads_per_worker=threads_per_worker, 
     #     **cluster_args
     # )
-    with LocalCluster(n_workers=n_workers,
-        processes=processes,
-        threads_per_worker=threads_per_worker,
-        memory_limit=memory_limit,
-        **cluster_args
-    ) as cluster, Client(cluster) as client:
+    dataset_dict = aggregate_time(dataset, weights, aggregator_dict, **kwargs)
     
-        dataset_dict = aggregate_time(dataset, weights, aggregator_dict, **kwargs)
-        
-        df = aggregate_space(dataset_dict, weights)
-        df = (
-            weights.georegions.shp[[weights.georegions.regionid]].merge(
-                df, left_index=True, right_on="region_id"
-            )
-        ).drop(columns="region_id")
-        
-        client.shutdown()
+    df = aggregate_space(dataset_dict, weights)
+    df = (
+        weights.georegions.shp[[weights.georegions.regionid]].merge(
+            df, left_index=True, right_on="region_id"
+        )
+    ).drop(columns="region_id")
+    
+    # client.shutdown()
 
     # _ = shutdown_dask_client()
     
