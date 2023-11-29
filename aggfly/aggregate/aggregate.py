@@ -93,15 +93,12 @@ def aggregate_time(
             raise ValueError("No arguments provided.")
         else:
             aggregator_dict = kwargs
-    print('hello')
-    print(aggregator_dict)
     out_dict = {}
     for key, value in aggregator_dict.items():
         keys = [key]
         data = [dataset.deepcopy()]
         for key2, value2 in value:
             if key2 == "aggregate":
-                print(value2)
                 if not isinstance(value2, TemporalAggregator):
                     value2 = TemporalAggregator(**value2)
                 data = [value2.execute(x, weights) for x in data]
