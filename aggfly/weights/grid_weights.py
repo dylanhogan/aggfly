@@ -382,7 +382,7 @@ class GridWeights:
         
         if type == 'total':
             wvar = 'weight'
-        elif type == 'raster':
+        elif type == 'secondary':
             wvar = 'raster_weight'
         elif type == 'area':
             wvar = 'area_weight'

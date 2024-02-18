@@ -7,7 +7,6 @@ import geopandas as gpd
 import numba
 import dask
 import dask.array
-from dataclasses import dataclass
 
 from .grid import Grid
 from .grid_utils import *
@@ -525,7 +524,7 @@ def from_name(name, var, chunks="auto", **kwargs):
     # if name == 'prism':
     #
     path, engine, preprocess = get_path(name)
-    clim = from_path(path, var, engine, preprocess, name, chunks, **kwargs)
+    clim = dataset_from_path(path, var, engine, preprocess, name, chunks, **kwargs)
     return clim
 
 

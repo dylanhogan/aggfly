@@ -16,81 +16,27 @@ import rasterio
 from rasterio.enums import Resampling
 import rioxarray
 
+from .secondary_weights import RasterWeights
 from ..dataset import reformat_grid
 from ..cache import *
 
 
-class CropWeights:
+class CropWeights(RasterWeights):
     def __init__(
         self, raster, crop="corn", name=None, feed=None, path=None, project_dir=None
     ):
-        self.crop = crop
-        self.raster = raster
-        self.name = name
+        super().__init__(raster, name, path, project_dir)
+        self.wtype = crop
         self.feed = feed
-        self.path = path
-        self.project_dir = project_dir
+        
         self.cache = initialize_cache(self)
-
-    def rescale_raster_to_grid(
-        self,
-        grid,
-        verbose=False,
-        resampling=Resampling.average,
-        nodata=0,
-        return_raw=False,
-    ):
-        gdict = {"func": "rescale_raster_to_grid", "grid": clean_object(grid)}
-
-        if self.cache is not None:
-            cache = self.cache.uncache(gdict)
-        else:
-            cache = None
-
-        if cache is not None:
-            print(f"Loading rescaled {self.crop} weights from cache")
-            self.raster = cache
-            if verbose:
-                print("Cache dictionary:")
-                pprint(gdict)
-        else:
-            print(f"Rescaling {self.crop} weights to grid.")
-            print("This might take a few minutes and use a lot of memory...")
-
-            lon = grid.longitude.values
-            lat = grid.latitude.values
-            template = xr.DataArray(
-                data=np.zeros((len(lat), len(lon))),
-                dims=["latitude", "longitude"],
-                coords=dict(lon=(["longitude"], lon), lat=(["latitude"], lat)),
-            )
-
-            g = xr.DataArray(
-                data=grid.centroids().squeeze(),
-                dims=["y", "x"],
-                coords=dict(x=(["x"], lon), y=(["y"], lat)),
-            ).rio.write_crs("WGS84")
-
-            weights = xr.apply_ufunc(np.single, self.raster, dask="parallelized")
-
-            dsw = weights.rio.reproject_match(g, nodata=nodata, resampling=resampling)
-
-            if return_raw:
-                return dsw.values.squeeze()
-
-            self.raster = xr.DataArray(
-                data=dsw.values.squeeze(), dims=template.dims, coords=template.coords
-            )
-
-            if self.cache is not None:
-                self.cache.cache(self.raster, gdict)
 
     def cdict(self):
         gdict = {
             "name": self.name,
             "path": self.path,
             "feed": self.feed,
-            "crop": self.crop,
+            "crop": self.wtype,
             "raster": pformat(self.raster),
         }
         return gdict

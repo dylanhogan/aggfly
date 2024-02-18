@@ -9,6 +9,17 @@ from .aggregate import (
     start_dask_client,
     shutdown_dask_client
 )
-from .dataset import Dataset, dataset_from_path
-from .weights import CropWeights, PopWeights, GridWeights, weights_from_objects, pop_weights_from_path, crop_weights_from_path
+from .dataset import Dataset, Grid, dataset_from_path
+from .weights import (
+    CropWeights, 
+    PopWeights, 
+    GridWeights, 
+    SecondaryWeights,
+    weights_from_objects, 
+    pop_weights_from_path, 
+    crop_weights_from_path,
+    secondary_weights_from_path
+)
 from .regions import GeoRegions, georegions_from_path, georegions_from_name
+
+import tests

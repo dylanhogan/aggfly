@@ -16,73 +16,16 @@ import rasterio
 from rasterio.enums import Resampling
 import rioxarray
 
+from .secondary_weights import RasterWeights
 from ..dataset import reformat_grid
 from ..cache import *
 
 
-class PopWeights:
+class PopWeights(RasterWeights):
     def __init__(self, raster, name=None, path=None, project_dir=None):
-        self.raster = raster
+        super().__init__(raster, name, path, project_dir)
         self.wtype = "pop"
-        self.name = name
-        self.path = path
-        self.project_dir = project_dir
         self.cache = initialize_cache(self)
-
-    def rescale_raster_to_grid(
-        self,
-        grid,
-        verbose=False,
-        resampling=Resampling.average,
-        nodata=0,
-        return_raw=False,
-    ):
-        gdict = {"func": "rescale_raster_to_grid", "grid": clean_object(grid)}
-
-        if self.cache is not None:
-            cache = self.cache.uncache(gdict)
-        else:
-            cache = None
-
-        if cache is not None:
-            print(f"Loading rescaled pop weights from cache")
-            self.raster = cache
-            if verbose:
-                print("Cache dictionary:")
-                pprint(gdict)
-        else:
-            print(f"Rescaling pop weights to grid.")
-            print("This might take a few minutes and use a lot of memory...")
-
-            g = xr.DataArray(
-                    data=np.empty_like(grid.centroids()),
-                    dims=["y", "x"],
-                    coords=dict(
-                        x=(["x"], np.float64(grid.longitude.values)), 
-                        y=(["y"], np.float64(grid.latitude.values))
-                    )
-                ).rio.write_crs("WGS84")
-
-            dsw = self.raster.rio.reproject_match(g, nodata=nodata, resampling=resampling)
-            
-            dsw = dsw.rename({'x': 'longitude', 'y': 'latitude'}).squeeze()
-
-            if return_raw:
-                return dsw.values.squeeze()
-
-            self.raster = dsw
-
-            if self.cache is not None:
-                self.cache.cache(self.raster, gdict)
-
-    def cdict(self):
-        gdict = {
-            "wtype": self.wtype,
-            "name": self.name,
-            "path": self.path,
-            "raster": pformat(self.raster),
-        }
-        return gdict
 
 
 def pop_weights_from_path(
