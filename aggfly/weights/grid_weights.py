@@ -120,6 +120,10 @@ class GridWeights:
                 self.cache.cache(w, gdict, extension=".feather")
             self.weights = w
 
+        self.weights = self.georegions.shp[[self.georegions.regionid]].merge(
+            self.weights, right_on='index_right', left_index=True
+        )
+        
         nonzero_weights = np.isin(self.grid.index, self.weights.cell_id)
         self.nonzero_weight_coords = nonzero_weights.nonzero()
         self.nonzero_weight_mask = xr.DataArray(
@@ -312,8 +316,7 @@ class GridWeights:
         weights = area_weights.merge(
             raster_weights,
             how="left",
-            left_on=["latitude", "longitude"],
-            right_on=["lat", "lon"],
+            on=["latitude", "longitude"]
         )
 
         # Parallelize
@@ -343,7 +346,7 @@ class GridWeights:
             tw.loc[tw.zero_weight, ["weight"]] = tw.area_weight
         else:
             tw = tw.loc[np.logical_not(tw.zero_weight)]
-
+        
         return tw
 
     def cdict(self) -> Dict:
@@ -371,6 +374,32 @@ class GridWeights:
             gdict["raster_weights"] = None
 
         return gdict
+    
+    def plot_weights(self, region, type='total', **kwargs):
+        """
+        Plot the weights.
+        """
+        
+        if type == 'total':
+            wvar = 'weight'
+        elif type == 'raster':
+            wvar = 'raster_weight'
+        elif type == 'area':
+            wvar = 'area_weight'
+        else:
+            raise NotImplementedError
+        
+        import matplotlib.pyplot as plt
+        plot_df = self.weights.loc[
+                self.weights[self.georegions.regionid].isin([region])
+            ]
+        plot_ds = (plot_df[['latitude', 'longitude', wvar]]
+            .set_index(['latitude', 'longitude'])
+            .to_xarray()
+        )
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        plot_ds[wvar].plot(ax=ax)
+        self.georegions.shp.boundary.plot(ax=ax, edgecolor='red', linewidth=1)
 
 
 def weights_from_objects(

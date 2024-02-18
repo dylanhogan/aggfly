@@ -137,9 +137,8 @@ class GeoRegions:
             shp = deepcopy(self)
 
         m = np.in1d(shp.regions, region_list)
-        shp.shp = shp.shp[m]
-        shp.regions = shp.regions[m]
-        shp.shp = shp.shp.reset_index(drop=True)
+        shp.shp = shp.shp[m].reset_index(drop=True)
+        shp.regions = shp.regions[m].reset_index(drop=True)
         return shp
 
 

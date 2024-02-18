@@ -95,11 +95,15 @@ class SpatialAggregator:
             A DataFrame containing the weighted average of the climate data over the regions and time periods.
         """
         # with dask.config.set({"multiprocessing.context": "forkserver"}):
+        print("Computing...")
         clim_ds = dask.compute([x.da for x in self.dataset])[0] #, scheduler='processes'
+        
+        print("Combining datasets...")
         clim_ds = xr.combine_by_coords(
             [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]
         )
 
+        print("Stacking...")
         clim_df = (
             clim_ds.stack({"cell_id": ["latitude", "longitude"]})
             .drop_vars(["cell_id", "latitude", "longitude"])
@@ -109,10 +113,12 @@ class SpatialAggregator:
             .dropna(subset=self.names)
         )
 
+        print("Merging...")
         self.weights["region_id"] = self.weights.index_right
         merged_df = clim_df.merge(self.weights, how="inner", on="cell_id")
         merged_df = merged_df.dropna(subset=self.names)
 
+        print("Grouping...")
         group_key = (
             merged_df[["region_id", "time"]]
             .drop_duplicates()
@@ -121,11 +127,15 @@ class SpatialAggregator:
             .rename(columns={"index": "group_ID"})
         )
         
+        print("Merging again...")
         merged_df = merged_df.merge(group_key, on=["region_id", "time"]).set_index(
             "group_ID"
         )[["weight", *self.names]]
 
+        print("Creating Dask DataFrame...")
         ddf = dask.dataframe.from_pandas(merged_df, npartitions=50)
+        
+        print("Aggregating...")
         out = self.weighted_average(ddf, self.names).compute()
         aggregated = (
             out.merge(group_key, how="right", left_index=True, right_on="group_ID")

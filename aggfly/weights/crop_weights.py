@@ -114,7 +114,7 @@ def crop_weights_from_path(
     return weights
 
 
-def from_name(
+def crop_weights_from_name(
     name="cropland",
     crop="corn",
     grid=None,
