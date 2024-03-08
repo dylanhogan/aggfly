@@ -460,6 +460,7 @@ def dataset_from_path(
         "latitude": -1,
         "longitude": -1,
     },
+    preprocess_at_load = False,
     **kwargs,
 ) -> Dataset:
     """
@@ -494,6 +495,7 @@ def dataset_from_path(
     Dataset
         The loaded Dataset.
     """
+        
     if "*" in path or type(path) is list:
         with dask.config.set(**{"array.slicing.split_large_chunks": False}):
             array = xr.open_mfdataset(
@@ -506,7 +508,13 @@ def dataset_from_path(
         if ".zarr" in path:
             array = xr.open_dataset(path, engine='zarr', chunks=chunks, **kwargs)[var]
         else:
-            array = xr.open_dataset(path, chunks=chunks, **kwargs)[var]
+            array = xr.open_dataset(path, chunks=chunks, **kwargs)
+    
+    if preprocess_at_load:
+        array = preprocess(array)
+        preprocess=None
+    
+    array = array[var]
 
     return Dataset(
         array,

@@ -31,7 +31,7 @@ class PopWeights(RasterWeights):
 def pop_weights_from_path(
     path, grid=None, write=False, name=None, feed=None, project_dir=None, crs=None
 ):
-    da = open_raster(path)
+    da = open_pop_raster(path)
     if crs is not None:
         da = da.rio.write_crs(crs)
     weights = PopWeights(da, name, path, project_dir)
@@ -52,7 +52,7 @@ def from_name(name="landscan", grid=None, write=False, project_dir=None, crs=Non
     )
 
 
-def open_raster(path, preprocess=None, **kwargs):
+def open_pop_raster(path, preprocess=None, **kwargs):
     # Separate file path from file extension
     file, ex = os.path.splitext(path)
 

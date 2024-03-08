@@ -1,7 +1,9 @@
-from pprint import pformat
+from pprint import pformat, pprint
 import numpy as np
 import xarray as xr
 from rasterio.enums import Resampling
+import os
+import rioxarray
 
 from ..dataset import reformat_grid
 from ..cache import *
@@ -32,7 +34,7 @@ class RasterWeights:
 
         if cache is not None:
             print(f"Loading rescaled {self.wtype} weights from cache")
-            self.raster = cache
+            self.raster = cache.drop('spatial_ref').to_array()
             if verbose:
                 print("Cache dictionary:")
                 pprint(gdict)
@@ -85,3 +87,27 @@ def secondary_weights_from_path(
     weights = SecondaryWeights(da, name, path, project_dir, wtype)
 
     return weights
+
+    
+def open_raster(path, preprocess=None, **kwargs):
+    # Separate file path from file extension
+    file, ex = os.path.splitext(path)
+
+    if ex == ".tif":
+        da = rioxarray.open_rasterio(
+            path, chunks=True, lock=False, masked=True, **kwargs
+        )
+
+        if preprocess is not None:
+            da = preprocess(da)
+
+    # elif ex =='.zarr':
+    #     da = xr.open_zarr(path,  **kwargs)
+    #     da = da.layer.sel(crop=crop)
+    # elif ex == '.nc':
+    #     da = xr.open_dataset(path,  **kwargs)
+    #     da = da.layer.sel(crop=crop)
+    else:
+        raise NotImplementedError
+
+    return da

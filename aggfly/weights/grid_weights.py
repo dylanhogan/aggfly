@@ -393,12 +393,20 @@ class GridWeights:
         plot_df = self.weights.loc[
                 self.weights[self.georegions.regionid].isin([region])
             ]
-        plot_ds = (plot_df[['latitude', 'longitude', wvar]]
-            .set_index(['latitude', 'longitude'])
-            .to_xarray()
+        # plot_ds = (plot_df[['latitude', 'longitude', wvar]]
+        #     .set_index(['latitude', 'longitude'])
+        #     .to_xarray()
+        # )
+        plot_df = gpd.GeoDataFrame(
+            plot_df[['latitude', 'longitude', wvar]],
+            geometry=gpd.points_from_xy(plot_df.longitude, plot_df.latitude)
         )
+        plot_df.geometry = plot_df.buffer(self.grid.resolution / 2, cap_style=3)
+        print(plot_df)
+        
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-        plot_ds[wvar].plot(ax=ax)
+        # plot_ds[wvar].plot(ax=ax)
+        plot_df = plot_df.plot(ax=ax, column=wvar, legend=True)
         self.georegions.shp.boundary.plot(ax=ax, edgecolor='red', linewidth=1)
 
 

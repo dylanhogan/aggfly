@@ -52,7 +52,7 @@ def crop_weights_from_path(
     project_dir=None,
     crs=None,
 ):
-    da = open_raster(path, crop)
+    da = open_crop_raster(path, crop)
     if crs is not None:
         da = da.rio.write_crs(crs)
     weights = CropWeights(da, crop, name, feed, path, project_dir)
@@ -91,7 +91,7 @@ def crop_weights_from_name(
     )
 
 
-def open_raster(path, crop, preprocess=None, **kwargs):
+def open_crop_raster(path, crop, preprocess=None, **kwargs):
     # Separate file path from file extension
     file, ex = os.path.splitext(path)
 

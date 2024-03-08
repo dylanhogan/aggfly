@@ -141,6 +141,30 @@ class GeoRegions:
         shp.regions = shp.regions[m].reset_index(drop=True)
         return shp
 
+    def drop(self, region_list: Union[str, list], update: bool = False):
+        """
+        Drops regions.
+
+        Parameters
+        ----------
+        region_list : Union[str, list]
+            The list of regions to select.
+        update : bool, optional
+            A flag indicating if the regions should be updated (default is False).
+        """
+        region_list = (
+            [region_list] if not isinstance(region_list, list) else region_list
+        )
+        if update:
+            shp = self
+        else:
+            shp = deepcopy(self)
+        
+        m = np.in1d(shp.regions, region_list)
+        shp.shp = shp.shp[~m].reset_index(drop=True)
+        shp.regions = shp.regions[~m].reset_index(drop=True)
+        return shp
+
 
 def georegions_from_path(
     path: str, regionid: str, region_list: Optional[List[str]] = None
