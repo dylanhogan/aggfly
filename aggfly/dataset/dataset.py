@@ -506,7 +506,7 @@ def dataset_from_path(
 
     else:
         if ".zarr" in path:
-            array = xr.open_dataset(path, engine='zarr', chunks=chunks, **kwargs)[var]
+            array = xr.open_dataset(path, engine='zarr', chunks=chunks, **kwargs)
         else:
             array = xr.open_dataset(path, chunks=chunks, **kwargs)
     

@@ -21,5 +21,12 @@ from .weights import (
     secondary_weights_from_path
 )
 from .regions import GeoRegions, georegions_from_path, georegions_from_name
-
-import tests
+from .tests import (
+    georegion,
+    dataset_360,
+    secondary_weights,
+    weights,
+    test_weights,
+    test_aggregate_time,
+    test_aggregate
+)

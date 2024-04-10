@@ -393,6 +393,9 @@ class GridWeights:
         plot_df = self.weights.loc[
                 self.weights[self.georegions.regionid].isin([region])
             ]
+        plot_shp = self.georegions.shp.loc[
+            self.georegions.shp[self.georegions.regionid].isin([region])
+        ]
         # plot_ds = (plot_df[['latitude', 'longitude', wvar]]
         #     .set_index(['latitude', 'longitude'])
         #     .to_xarray()
@@ -402,20 +405,23 @@ class GridWeights:
             geometry=gpd.points_from_xy(plot_df.longitude, plot_df.latitude)
         )
         plot_df.geometry = plot_df.buffer(self.grid.resolution / 2, cap_style=3)
-        print(plot_df)
+        # print(plot_df)
         
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
         # plot_ds[wvar].plot(ax=ax)
-        plot_df = plot_df.plot(ax=ax, column=wvar, legend=True)
-        self.georegions.shp.boundary.plot(ax=ax, edgecolor='red', linewidth=1)
+
+        plot_shp.plot(ax=ax, edgecolor='black', linewidth=2, color='none')
+        plot_df.plot(ax=ax, column=wvar, alpha=0.75, legend=True)
+        
+
 
 
 def weights_from_objects(
     clim: Dataset,
     georegions: GeoRegions,
     secondary_weights: Optional[Union[CropWeights, PopWeights]] = None,
-    wtype: str = "crop",
-    name: str = "cropland",
+    wtype: str = None,
+    name: str = None,
     crop: Optional[str] = "corn",
     feed: Optional[str] = None,
     write: bool = False,

@@ -142,15 +142,15 @@ def aggregate_space(
     
     dataset_list = list(dataset_dict.values())
     
-    client = distributed_client()
-    if client is None and npartitions is None:
-        npartitions=1
-    else:
-        npartitions=len(client.scheduler_info()["workers"])
-        da_list = dask.persist([x.da for x in dataset_list])[0]
-        progress(da_list)
-        for i, dataset in enumerate(dataset_list):
-            dataset.da = da_list[i]
+    # client = distributed_client()
+    # if client is None and npartitions is None:
+    #     npartitions=1
+    # else:
+        # npartitions=len(client.scheduler_info()["workers"])
+        # da_list = dask.persist([x.da for x in dataset_list])[0]
+        # progress(da_list)
+        # for i, dataset in enumerate(dataset_list):
+        #     dataset.da = da_list[i]
     df = SpatialAggregator(
         dataset_list, weights, names=list(dataset_dict.keys()),
     ).compute(npartitions=npartitions)
@@ -158,9 +158,10 @@ def aggregate_space(
 
 
 def aggregate_dataset(
-    dataset: Dataset,
     weights: GridWeights,
+    dataset: Dataset = None,
     aggregator_dict: Dict[str, Union[List[Tuple], TemporalAggregator]] = None,
+    dataset_dict = None,
     n_workers = 50,
     threads_per_worker = 1,
     processes = True,
@@ -181,14 +182,20 @@ def aggregate_dataset(
     Returns:
         df: A dataframe containing the aggregated data.
     """
+
+    if dataset is None:
+        raise ValueError("No dataset provided.")
     
-    # client = start_dask_client(
-    #     n_workers=n_workers,
-    #     threads_per_worker=threads_per_worker, 
-    #     **cluster_args
-    # )
-    dataset_dict = aggregate_time(dataset, weights, aggregator_dict, **kwargs)
+    if aggregator_dict is None and kwargs is not None:
+        aggregator_dict = kwargs
     
+    if aggregator_dict is not None:
+        dataset_dict = aggregate_time(dataset, weights, aggregator_dict)
+    elif dataset_dict is None:
+        dataset_dict = {"variable": dataset}
+        if dataset_dict is None and dataset is None:
+            raise ValueError("No aggregator dict or dataset dict provided.")
+
     df = aggregate_space(dataset_dict, weights)
     df = (
         weights.georegions.shp[[weights.georegions.regionid]].merge(

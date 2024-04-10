@@ -107,7 +107,7 @@ class SpatialAggregator:
         clim_df = (
             clim_ds.stack({"cell_id": ["latitude", "longitude"]})
             .drop_vars(["cell_id", "latitude", "longitude"])
-            # .assign_coords(coords={"cell_id": ("cell_id", self.grid.index.flatten())})
+            .assign_coords(coords={"cell_id": ("cell_id", self.dataset[0].grid.cell_id)})
             .to_dataframe()
             .reset_index("time")
             .dropna(subset=self.names)
