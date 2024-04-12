@@ -37,6 +37,7 @@ class GeoRegions:
         region_list: list = None,
         name: str = None,
         path: str = None,
+        crs: str = "WGS84"
     ):
         """
         Constructs all the necessary attributes for the GeoRegions object.
@@ -54,6 +55,13 @@ class GeoRegions:
         path : str, optional
             The path to the shapefile (default is None).
         """
+        try: 
+            shp.crs
+            if crs != shp.crs:
+                f"Converting shapefile CRS to {crs}"
+                shp = shp.to_crs(crs)   
+        except:
+            raise ValueError('Shapefile does not have a CRS assigned to it')
         self.shp = shp.reset_index(drop=True)
         self.regionid = regionid
         self.regions = self.shp[self.regionid]

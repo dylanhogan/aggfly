@@ -16,7 +16,7 @@ def dataset_360():
     y = np.linspace(-90, 90, 3)
     latitude = (y[1:] + y[:-1]) / 2
     
-    time = pd.date_range('2000-07-01', periods=4, freq='12H')
+    time = pd.date_range('2000-07-01', periods=4, freq='12h')
     
     arr = np.random.normal(20, 15, (len(time), len(latitude), len(longitude)))
     
@@ -49,6 +49,7 @@ def georegion():
             'geometry': [polygon]
         }
     )
+    gdf = gdf.set_crs('WGS84')
     return af.GeoRegions(gdf, regionid='geoid')
 
 @pytest.fixture(name='georegion')
@@ -85,6 +86,7 @@ def secondary_weights_fixture():
 def weights(dataset_360, georegion, secondary_weights):
     w = af.weights_from_objects(dataset_360, georegion, secondary_weights)
     w.calculate_weights()
+    w.weights = w.weights.sort_values('cell_id')
     return w
 
 @pytest.fixture(name='weights')
@@ -96,6 +98,7 @@ def test_weights(weights):
     assert isinstance(weights.grid, af.Grid)
     assert isinstance(weights.georegions, af.GeoRegions)
     assert isinstance(weights.raster_weights, af.SecondaryWeights)
+    print(weights.weights)
     assert np.allclose(
         weights.weights.area_weight,
         np.array([0.87770301, 0.84596667, 0.42553152, 0.94280892])

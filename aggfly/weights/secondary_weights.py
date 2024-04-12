@@ -11,6 +11,8 @@ from ..cache import *
 
 class RasterWeights:
     def __init__(self, raster, name=None, path=None, project_dir=None):
+        if raster.rio.crs is None:
+            raise ValueError("Raster does not have a CRS assigned to it. Specify a CRS, e.g., `crs='WGS84'`.")
         self.raster = raster
         self.wtype = "none"
         self.name = name
@@ -75,6 +77,8 @@ class RasterWeights:
 class SecondaryWeights(RasterWeights):
     def __init__(self, raster, name=None, path=None, project_dir=None, wtype="raster"):
         super().__init__(raster, name, path, project_dir)
+        if self.raster.rio.crs is None:
+            raise ValueError("Raster does not have a CRS assigned to it. Specify a CRS, e.g., `crs='WGS84'`.")
         self.wtype = wtype
         self.cache = initialize_cache(self)
         
@@ -82,8 +86,10 @@ def secondary_weights_from_path(
     path, name=None, project_dir=None, crs=None, wtype="raster"
 ):
     da = open_raster(path)
+    
     if crs is not None:
         da = da.rio.write_crs(crs)
+    
     weights = SecondaryWeights(da, name, path, project_dir, wtype)
 
     return weights

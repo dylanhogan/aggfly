@@ -195,4 +195,4 @@ def _multi_bins(frame, axis, ddargs):
 
 
 def translate_groupby(groupby):
-    return {"date": "1D", "month": "M", "year": "Y"}[groupby]
+    return {"date": "1D", "month": "ME", "year": "Y"}[groupby]

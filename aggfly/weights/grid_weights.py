@@ -92,6 +92,7 @@ class GridWeights:
 
         # Load raster weights if needed
         if self.raster_weights is not None:
+            assert self.raster_weights.raster.rio.crs == self.georegions.shp.crs, "CRS mismatch"
             self.raster_weights.rescale_raster_to_grid(self.grid, verbose=self.verbose)
             gdict["raster_weights"] = self.raster_weights.cdict()
         else:
