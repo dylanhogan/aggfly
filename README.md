@@ -87,7 +87,7 @@ dataset = af.dataset_from_path(
 dataset.da
 ```
 
-Main ptions:
+Main options:
 - **var**:
 - **preprocess**:
 
@@ -177,7 +177,7 @@ Available transformations include:
 - **dd**:
 - **bin**:
 
-For a more detailed application of the aggregation, refer to the example notebook.pip install -e .
-```
+For a more detailed application of the aggregation, refer to the example notebook.
+
 
 Of course, please feel free to suggest changes/improvements/extensions in [Issues](https://github.com/dylanhogan/aggfly/issues) :)
