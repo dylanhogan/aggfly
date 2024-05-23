@@ -1,3 +1,4 @@
+
 # aggfly
 
 ## Introduction
@@ -16,22 +17,28 @@ conda env create --file /path/to/aggfly-dev-environment.yml --name aggfly-dev
 
 with ```/path/to/``` specifying the location of the YAML file and ```aggfly-dev``` being the name of the environment you will create. For other details on how to use YAML files and how to manage environments, check out the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).   
 
-After having created the environment, you can install the package by activating the environment and by using the ``` pip install -e``` command, only after having installed ```pip```:
+After having created the environment, you can install the package by activating the environment and by using the ```pip install -e``` command from the root directory of your local aggfly git repository, only after having installed ```pip```:
 
 ```
 conda activate aggfly-dev
 conda install pip
-pip install -e
+pip install -e .
 ```
 
-from the root directory of your local aggfly git repository.
+This will install it in an editable mode. Alternatively, install it through:
 
-You may want to use aggfly to run batch jobs or in Jupyter sessions. In the case in which you want to use an interactive Jupyter session, make the environment you have created available in JupyterLab by following the [instructions](https://ipython.readthedocs.io/en/latest/install/kernel_install.html#kernels-for-different-environments). In some of the cases, it will be sufficient to run the following commands:
+```
+conda activate aggfly-dev
+conda install pip
+pip install git+https://github.com/dylanhogan/aggfly.git@main
+```
+
+You may want to use aggfly to run batch jobs or in Jupyter sessions. In the case in which you experience issues when accessing the environment in Jupyter, try [this](https://ipython.readthedocs.io/en/latest/install/kernel_install.html#kernels-for-different-environments) to make the environment you have created available in Jupyter. In some of the cases, it will be sufficient to run the following commands:
 
 ```
 conda activate aggfly-dev
 conda install ipykernel
-python -m ipykernel install --user --aggfly-dev
+python -m ipykernel install --user --name aggfly-dev
 conda deactivate
 ``` 
 
@@ -68,7 +75,7 @@ The first step towards aggregating the climatic dataset is to load the shapefile
 
 ``` 
 georegions = af.georegions_from_path(
-    "/home3/dth2133/data/shapefiles/county/cb_2018_us_county_500k.shp",
+    "~/data/shapefiles/county/cb_2018_us_county_500k.shp",
     regionid='GEOID'
 )
 ```
@@ -87,9 +94,11 @@ dataset = af.dataset_from_path(
 dataset.da
 ```
 
-Main options:
-- **var**:
-- **preprocess**:
+Main arguments:
+- **var**: The selected variable to transform and aggregate.
+- **preprocess**: It is used to specify a function for processing the raw values of your data before they are aggregated. For instance, it can be used to convert degrees Kelvin to degrees Celsius or to shift every osbervation back by one hour.
+- **georegions**: The georegions object you have previously created.
+- **name**: The name you want to assign to this dataset.
 
 
 ### 2. Computing the weights 
@@ -98,8 +107,14 @@ We first start with a brief explanation of why weights are an important componen
 
 #### Why are weights important?
 
+There are two categories of weights that you may use to spatially aggregate the climatic data:
+
+1. **Area weights** are the standard weights that we need to use, which consider the share of the area of an administrative that falls in a grid cell as the weight assigned to that cell. It is important to compute the weighted average of the climatic data over each administrative region, rather than the unweighted one, for two main reasons. First, the global grid cells have different dimension, since the longitude lines converge at the equator and, hence, the linear distance of longitude is larger at the equator and it converges to zero at the poles. Second, the border of some of our administrative regions may intersect some cells. In the latter case, we want the weight of the intersected cell to be proportional to the area covered by the administrative region.
+2. **Secondary weights** are useful when we are interested in the average climate experienced by a particular subject. For example, if we are studying the effect of climate on human health, it may be appropriate to weight the climatic data by the number of humans that live in a grid cell. Alternatively, if we are interested in the responses of agricultural productivity to climate change, we may want to use the share of land covered by crops - or a specific crop - to compute the weight of each grid cell weight.
 
 #### Implementation without secondary weights
+
+This is the standard case, in which area weights are computed from the ```weights_from_objects``` without specifying any ```secondary weights``` in the options.
 
 ```
 # Calculate area weights.
@@ -111,11 +126,12 @@ weights = af.weights_from_objects(
 weights.calculate_weights()
 ```
 
-
 #### Implementation with secondary weights
 
+To calculate weights based on a secondary variable, we first load the secondary variable dataset with one among ```secondary_weights_from_path```, ```pop_weights_from_path``` and ```crop_weights_from_path```. Then, we compute the weights through the ```weights_from_objects``` specifying ```secondary weights``` in the options.
+
 ```
-secondary_weights = af.pop_weights_from_path("/home3/dth2133/data/population/landscan-global-2016.tif")
+secondary_weights = af.pop_weights_from_path("~/data/population/landscan-global-2016.tif")
 
 # Calculate weights.
 weights = af.weights_from_objects(
@@ -127,8 +143,13 @@ weights = af.weights_from_objects(
 weights.calculate_weights()
 ```
 
+```weights``` will now contain the array of weights to be used for the aggregation.
 
-
+Main arguments:
+- **georegions**: The georegions object you have previously created.
+- **dataset**: The layer of the dataset that is used to obtain the informations on the structure of the grid in order to compute the weights.
+- **project_dir**: The project directory.
+- **secondary_weights**: the ```secondary_weights``` object you have previously created.
 
 ### 3. Transforming and aggregating 
 
@@ -136,7 +157,7 @@ You first load the full dataset that you want to aggregate using the same proced
 
 ```
 dataset = af.dataset_from_path(
-    f"/home3/dth2133/data/annual/tempPrecLand{year}.zarr", 
+    f"~//data/annual/tempPrecLand{year}.zarr", 
     var = 't2m',
     name = 'era5',
     georegions=georegions,
@@ -166,18 +187,29 @@ output_df = af.aggregate_dataset(
 )
 ```
 
+Notice that the function will first compute the aggregation across time in the way described by the lists of 
+
+Main arguments:
+- **dataset**: The complete raster that you have just loaded, which contains the climatic data you want to aggregate.
+- **georegions**: The georegions object you have previously created.
+- **weights**: 
+
+**TO COMPLETE**
+agg_dict (dict): A dictionary containing the arguments for creating TemporalAggregator objects.
+                        The keys of the dictionary are names, and the values are a list of either tuples or TemporalAggregator objects.
+                        If the list contains tuples, use them as arguments to instantiate a temporal aggregator.
+
+
 
 Available transformations include:
 
-- **avg**:
-- **min**:
-- **max**:
-- **sum**:
-- **polynomial**:
-- **dd**:
+- **mean** computes the average value of the within the time period specified by ```groupby```.
+- **min** computes the minimum value within the time period.
+- **max**: computes the maximum value within the time period.
+- **sum**: computes the sum over the time period.
+- **dd**: 
 - **bin**:
+- **exp**: computes the polynomials of the specified degrees.
+
 
 For a more detailed application of the aggregation, refer to the example notebook.
-
-
-Of course, please feel free to suggest changes/improvements/extensions in [Issues](https://github.com/dylanhogan/aggfly/issues) :)
