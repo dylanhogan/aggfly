@@ -147,8 +147,8 @@ class TemporalAggregator:
         else:
             if not update:
                 dataset = deepcopy(dataset)
-
-        out = ds.resample(time=self.groupby).reduce(self.func, **self.kwargs)
+        with dask.config.set(**{'array.slicing.split_large_chunks': False}):
+            out = ds.resample(time=self.groupby).reduce(self.func, **self.kwargs)
 
         if self.multi_dd:
             out = out.to_dataset(dim="dd")
@@ -195,4 +195,4 @@ def _multi_bins(frame, axis, ddargs):
 
 
 def translate_groupby(groupby):
-    return {"date": "1D", "month": "ME", "year": "Y"}[groupby]
+    return {"date": "1D", "month": "ME", "year": "YE"}[groupby]
