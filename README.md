@@ -1,44 +1,35 @@
 
-# aggfly
+# `aggfly`
 
-## Introduction
+## Overview: Why `aggfly`?
 
-Brief introduction on the purporse of aggfly.
+TODO: Brief introduction on the purpose of aggfly.
 
 ## Installation
 
-We will start by assuming that you have already created a local copy of the aggfly repository by cloning it on your computer, but you can find the instructions to do it in the [git documentation](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository).
+### Required dependencies
+- Python (3.11.6 or later)
 
-To install the package, you first need to create a conda environment where it will be installed. Assuming you already have conda installed in your system - otherwise follow the [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) -, download the `aggfly-dev-environment.yml` file located in aggfly's main repository. Use this file, which provides the information on the core packages you need to run the code, to create your conda environment by running the following command from your terminal:
+### Instructions
+Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)).
 
+1. Use `pip`` to install package from PyPI:
 ```
-conda env create --file /path/to/aggfly-dev-environment.yml --name aggfly-dev 
+pip install aggfly
 ```
-
-with ```/path/to/``` specifying the location of the YAML file and ```aggfly-dev``` being the name of the environment you will create. For other details on how to use YAML files and how to manage environments, check out the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).   
-
-After having created the environment, you can install the package by activating the environment and by using the ```pip install -e``` command from the root directory of your local aggfly git repository, only after having installed ```pip```:
-
+2. Use conda with the conda-forge channel:
 ```
-conda activate aggfly-dev
-conda install pip
-pip install -e .
+conda install -c conda-forge aggfly
 ```
 
-This will install it in an editable mode. Alternatively, install it through:
-
-```
-conda activate aggfly-dev
-conda install pip
-pip install git+https://github.com/dylanhogan/aggfly.git@main
-```
+### Jupyter
 
 You may want to use aggfly to run batch jobs or in Jupyter sessions. In the case in which you experience issues when accessing the environment in Jupyter, try [this](https://ipython.readthedocs.io/en/latest/install/kernel_install.html#kernels-for-different-environments) to make the environment you have created available in Jupyter. In some of the cases, it will be sufficient to run the following commands:
 
 ```
-conda activate aggfly-dev
+conda activate <environment_name>
 conda install ipykernel
-python -m ipykernel install --user --name aggfly-dev
+python -m ipykernel install --user --name <environment_name>
 conda deactivate
 ``` 
 
