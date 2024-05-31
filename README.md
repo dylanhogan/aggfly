@@ -13,7 +13,7 @@ TODO: Brief introduction on the purpose of aggfly.
 ### Instructions
 Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)).
 
-1. Use `pip`` to install package from PyPI:
+1. Use `pip` to install package from PyPI:
 ```
 pip install aggfly
 ```
