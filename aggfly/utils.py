@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
-import pygeos
+import shapely
 import dask.array
 from hashlib import sha256
 import json
@@ -13,7 +13,7 @@ def bool_array_to_geoseries(m):
     inlon = np.where(m, X, np.nan).flatten()
     inlat = np.where(m, Y, np.nan).flatten()
 
-    cent = pygeos.points(
+    cent = shapely.points(
         inlon[np.logical_not(np.isnan(inlon))], inlat[np.logical_not(np.isnan(inlat))]
     )
     return gpd.GeoSeries(cent)
@@ -23,7 +23,7 @@ def bool_array_to_centroid_array(m, compute=True, chunksize=100):
     X, Y = np.meshgrid(m.lon.values, m.lat.values)
     inlon = dask.array.from_array(np.where(m, X, np.nan), chunks=chunksize)
     inlat = dask.array.from_array(np.where(m, Y, np.nan), chunks=chunksize)
-    output = inlon.map_blocks(pygeos.points, inlat, dtype=float)
+    output = inlon.map_blocks(shapely.points, inlat, dtype=float)
     if compute:
         return output.compute()
     else:

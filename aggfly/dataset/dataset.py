@@ -72,30 +72,31 @@ class Dataset:
         name : str, optional
             The name of the dataset (default is None).
         """
+        
+        with dask.config.set(**{"array.slicing.split_large_chunks": False}):  
+            da = clean_dims(da, xycoords)
+            da = da.sortby("time")
+            if time_sel is not None:
+                da = da.sortby("time").sel(time=time_sel)
+                # time_fix=True
+            if preprocess is not None:
+                da = preprocess(da)
 
-        da = clean_dims(da, xycoords)
-        da = da.sortby("time")
-        if time_sel is not None:
-            da = da.sortby("time").sel(time=time_sel)
-            # time_fix=True
-        if preprocess is not None:
-            da = preprocess(da)
+            self.update(da, init=True)
+            self.name = name
+            self.lon_is_360 = lon_is_360
+            self.coords = self.da.coords
 
-        self.update(da, init=True)
-        self.name = name
-        self.lon_is_360 = lon_is_360
-        self.coords = self.da.coords
-
-        self.longitude = self.da.longitude
-        self.latitude = self.da.latitude
-        assert np.all([x in list(self.coords) for x in ["latitude", "longitude"]])
-        self.grid = Grid(self.longitude, self.latitude, self.name, self.lon_is_360)
-        self.history = []
-        self.georegions = georegions
-        if self.georegions is not None:
-            self.clip_data_to_georegions_extent(self.georegions)
-        if time_fix:
-            self.update(timefix(self.da), init=True)
+            self.longitude = self.da.longitude
+            self.latitude = self.da.latitude
+            assert np.all([x in list(self.coords) for x in ["latitude", "longitude"]])
+            self.grid = Grid(self.longitude, self.latitude, self.name, self.lon_is_360)
+            self.history = []
+            self.georegions = georegions
+            if self.georegions is not None:
+                self.clip_data_to_georegions_extent(self.georegions)
+            if time_fix:
+                self.update(timefix(self.da), init=True)
 
     def rechunk(self, chunks: str = "auto"):
         """

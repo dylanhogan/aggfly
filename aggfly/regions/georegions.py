@@ -1,7 +1,9 @@
+import os
 from typing import List, Optional, Union
 import numpy as np
 import matplotlib.pyplot as mpl
 
+import geopandas as gpd
 import geopandas as gpd
 import dask_geopandas
 import dask
@@ -10,6 +12,12 @@ from copy import deepcopy
 import warnings
 
 from .shp_utils import *
+
+# Weird bug in pyproj or geopandas that results in inf values the first time
+# a shapefile is loaded.. only for certain installations of PROJ
+# https://github.com/arup-group/genet/issues/213
+import pyproj
+pyproj.network.set_network_enabled(False)
 
 
 class GeoRegions:
@@ -58,7 +66,7 @@ class GeoRegions:
         try: 
             shp.crs
             if crs != shp.crs:
-                f"Converting shapefile CRS to {crs}"
+                print(f"Converting shapefile CRS to {crs}")
                 shp = shp.to_crs(crs)   
         except:
             raise ValueError('Shapefile does not have a CRS assigned to it')
@@ -194,6 +202,7 @@ def georegions_from_path(
     GeoRegions
         The loaded GeoRegions object.
     """
+    
     shp = gpd.read_file(path)
     return GeoRegions(shp, regionid, region_list)
 

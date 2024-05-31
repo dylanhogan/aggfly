@@ -1,6 +1,6 @@
 from copy import deepcopy
 import os
-os.environ['USE_PYGEOS'] = '0'
+# os.environ['USE_PYGEOS'] = '0'
 
 import numpy as np
 import dask.array as da
