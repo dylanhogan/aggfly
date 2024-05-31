@@ -1,6 +1,9 @@
 
 # `aggfly`
 
+NOTE: `aggfly` is still in development and may not be stable for new users. Please proceed with caution.
+
+
 ## Overview: Why `aggfly`?
 
 TODO: Brief introduction on the purpose of aggfly.
