@@ -17,10 +17,6 @@ Since `aggfly` relies on several packages with version restrictions, we recommen
 ```
 pip install aggfly
 ```
-2. Use conda with the conda-forge channel:
-```
-conda install -c conda-forge aggfly
-```
 
 ### Jupyter
 
