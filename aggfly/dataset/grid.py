@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import xarray as xr
-import pygeos
+import shapely
 import geopandas as gpd
 import os
 import dask
@@ -34,8 +34,8 @@ class Grid:
         return abs(np.diff(self.latitude).mean())
 
     def get_cell_area(self):
-        cell = pygeos.box(0, 0, self.resolution, self.resolution)
-        return pygeos.area(cell)
+        cell = shapely.box(0, 0, self.resolution, self.resolution)
+        return shapely.area(cell)
     
     def get_index(self):
         if self.lon_is_360:
@@ -85,7 +85,7 @@ class Grid:
         mask = (
             georegions.poly_array(buffer, "dask")
             .rechunk(chunksize)
-            .map_blocks(pygeos.contains, self.centroids(), dtype=float)
+            .map_blocks(shapely.contains, self.centroids(), dtype=float)
         )
         if compute:
             with warnings.catch_warnings():
@@ -125,7 +125,7 @@ class Grid:
             gpd.GeoDataFrame(geometry=poly_array), npartitions=1
         )
 
-        # mask = fc.map_blocks(pygeos.within, poly_array, dtype=bool)
+        # mask = fc.map_blocks(shapely.within, poly_array, dtype=bool)
         mask = fc.sjoin(poly_array, predicate="within").compute()
 
         return mask
@@ -168,7 +168,7 @@ class Grid:
             for x in [-self.resolution / 2, self.resolution / 2]
         ]
         boxes = lonpoints[0].map_blocks(
-            pygeos.box, latpoints[0], lonpoints[1], latpoints[1], dtype=float
+            shapely.box, latpoints[0], lonpoints[1], latpoints[1], dtype=float
         )
 
         # Return full cells or intersection of cell and polygon (e.g. for area weights)
@@ -177,7 +177,7 @@ class Grid:
             # tr = np.moveaxis(tr, 0, -1)
             return tr
 
-        result = pol.map_blocks(pygeos.intersection, boxes, dtype=float)
+        result = pol.map_blocks(shapely.intersection, boxes, dtype=float)
         if compute:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
