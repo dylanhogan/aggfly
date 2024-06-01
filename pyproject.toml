@@ -1,13 +1,20 @@
 [tool.poetry]
 name = "aggfly"
-version = "0.1.0"
+version = "0.1.4"
 description = "Efficient spatial and temporal aggregation of gridded climate data"
 authors = ["Dylan Hogan <dth2133@columbia.edu>"]
 readme = "README.md"
 packages = [{include = "aggfly"}]
 
+
+# 3.12.3 causing issues with dask and dask-geopandas
+# updates to dask causing issues for dask-geopandas
+# So can't update dask-geopandas until they release an update compatible with
+# latest dask dataframe changes, at which point we can upgrade all, hopefully
+# https://github.com/geopandas/dask-geopandas/issues/284
+# https://github.com/geopandas/dask-geopandas/issues/289
 [tool.poetry.dependencies]
-python = ">=3.11.6, <4.0"
+python = ">=3.11.6, <3.12.3"
 dask = "^2023.11.0"
 numpy = "^1.26.4"
 geopandas = "^0.14.4"
