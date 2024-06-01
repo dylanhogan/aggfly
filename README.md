@@ -1,20 +1,21 @@
 
-# `aggfly`
+# aggfly: Efficient climate data aggregation
+[![PyPI version](https://badge.fury.io/py/aggfly.svg)](https://badge.fury.io/py/aggfly)
 
-NOTE: `aggfly` is still in development and may not be stable for new users. Please proceed with caution.
+NOTE: aggfly is still in development and may not be stable for new users. Please proceed with caution.
 
 
-## Overview: Why `aggfly`?
+## Overview: Why aggfly?
 
 TODO: Brief introduction on the purpose of aggfly.
 
 ## Installation
 
 ### Required dependencies
-- Python (3.11.6-3.12.2)
+- Python 3.11.6-3.12.2
 
 ### Instructions
-Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)).
+Since aggfly relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)).
 
 1. Use `pip` to install package from PyPI:
 ```
