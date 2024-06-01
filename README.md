@@ -11,7 +11,7 @@ TODO: Brief introduction on the purpose of aggfly.
 ## Installation
 
 ### Required dependencies
-- Python (3.11.6 or later)
+- Python (3.11.6-3.12.2)
 
 ### Instructions
 Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)).
