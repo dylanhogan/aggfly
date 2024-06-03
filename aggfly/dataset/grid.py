@@ -14,20 +14,78 @@ from .grid_utils import *
 
 
 class Grid:
+    """
+    A class representing a spatial grid with longitude and latitude coordinates.
+
+    Attributes:
+    -----------
+    longitude: np.ndarray
+        Array of longitude coordinates.
+    latitude: np.ndarray
+        Array of latitude coordinates.
+    lon_array: np.ndarray
+        Meshgrid array of longitude coordinates.
+    lat_array: np.ndarray
+        Meshgrid array of latitude coordinates.
+    name: str
+        Name of the grid.
+    lon_is_360: bool
+        Indicates if the longitude coordinates are in the range [0, 360].
+    index: np.ndarray
+        Index array for the grid.
+    cell_id: np.ndarray
+        Flattened index array representing cell IDs.
+    resolution: float
+        Resolution of the grid.
+    cell_area: np.ndarray
+        Array representing the area of each cell in the grid.
+
+    Methods:
+    --------
+    get_index():
+        Generates an index array for the grid.
+    get_resolution():
+        Calculates the resolution of the grid.
+    get_cell_area():
+        Calculates the area of each cell in the grid.
+    """
+    
     def __init__(self, longitude, latitude, name, lon_is_360):
+        """
+        Initializes the Grid object with longitude and latitude coordinates.
+
+        Parameters:
+        -----------
+        longitude: np.ndarray
+            Array of longitude coordinates.
+        latitude: np.ndarray
+            Array of latitude coordinates.
+        name: str
+            Name of the grid.
+        lon_is_360: bool
+            Indicates if the longitude coordinates are in the range [0, 360].
+        """
         self.longitude = longitude
         self.latitude = latitude
+        # Create meshgrid arrays for longitude and latitude
         self.lon_array, self.lat_array = np.meshgrid(self.longitude, self.latitude)
         self.name = name
         self.lon_is_360 = lon_is_360
+        # Generate index array for the grid
         self.index = self.get_index()
+        # Flatten index array to get cell IDs
         self.cell_id = self.index.flatten()
+        # Calculate resolution of the grid
         self.resolution = self.get_resolution()
+        # Calculate area of each cell in the grid
         self.cell_area = self.get_cell_area()
 
     @lru_cache(maxsize=None)
+    # Function that gnerates the centroids for the grid.
     def centroids(self, datatype="points", chunks=30):
+        # Reformat the grid to the specified data structure
         centroids = reformat_grid(self.lon_array, self.lat_array, datatype, chunks)
+        # Return the centroids
         return centroids
 
     def get_resolution(self):
