@@ -88,25 +88,47 @@ class Grid:
         # Return the centroids
         return centroids
 
+    # Function that calculates the resolution of the grid
     def get_resolution(self):
+    # Calculate the average difference between consecutive latitude values to determine resolution
         return abs(np.diff(self.latitude).mean())
 
+    # Function that calculates the area of each cell in the grid
     def get_cell_area(self):
+        # Create a square cell using the resolution and calculate its area using shapely
         cell = shapely.box(0, 0, self.resolution, self.resolution)
         return shapely.area(cell)
-    
+
+    # Function that generates an index array for the grid
     def get_index(self):
+        # Convert longitude coordinates to the range [-180, 180] if needed
         if self.lon_is_360:
             longitude = lon_to_180(self.longitude)
         else:
             longitude = self.longitude
-        
+
+        # Create meshgrid arrays for longitude and latitude
         lon_array, lat_array = np.meshgrid(longitude, self.latitude)
+        # Generate an index array for the grid
         return(np.indices(lon_array.flatten().shape).reshape(lon_array.shape))
 
     @lru_cache(maxsize=None)
     def clip_grid_to_georegions_extent(self, georegions):
+        """
+        Clips the grid to the extent of the given georegions.
+    
+        Parameters:
+        -----------
+        georegions: GeoDataFrame
+            The geospatial regions to clip the grid to.
+    
+        Returns:
+        --------
+        None
+        """
+        # Get the total bounds of the georegions
         bounds = georegions.shp.total_bounds
+        # Adjust bounds for 360-degree longitude if needed
         if self.lon_is_360:
             all_bounds = lon_to_360(np.array(georegions.shp.bounds)[:, [0, 2]])
             xmin = all_bounds[:, 0].min()
@@ -114,23 +136,42 @@ class Grid:
             bounds = georegions.shp.total_bounds
             bounds[[0, 2]] = [xmin, xmax]
 
+        # Clip the grid to the bounding box of the georegions
         self.clip_grid_to_bbox(bounds)
 
     def clip_grid_to_bbox(self, bounds):
+        """
+        Clips the grid to the specified bounding box.
+    
+        Parameters:
+        -----------
+        bounds: list
+            The bounding box to clip the grid to [min_lon, min_lat, max_lon, max_lat].
+    
+        Returns:
+        --------
+        None
+        """
+        # Determine which longitudes fall within the bounding box
         inlon = np.logical_and(
             self.longitude >= bounds[0] - self.resolution / 2,
             self.longitude <= bounds[2] + self.resolution / 2,
         )
+        # Get the min and max longitudes within the bounding box
         inlon_b = [self.longitude[inlon].min(), self.longitude[inlon].max()]
 
+        # Determine which latitudes fall within the bounding box
         inlat = np.logical_and(
             self.latitude >= bounds[1] - self.resolution / 2,
             self.latitude <= bounds[3] + self.resolution / 2,
         )
+        # Get the min and max latitudes within the bounding box
         inlat_b = [self.latitude[inlat].min(), self.latitude[inlat].max()]
 
+        # Generate grid centroids within the bounding box
         longitude, latitude = grid_centroids(inlon_b, inlat_b, self.resolution)
 
+        # Update grid attributes with the new longitude and latitude values within the bounding box
         self.longitude = self.longitude[inlon]
         self.latitude = self.latitude[inlat]
         self.lon_array, self.lat_array = np.meshgrid(self.longitude, self.latitude)
@@ -140,14 +181,36 @@ class Grid:
 
     @lru_cache(maxsize=None)
     def mask(self, georegions, buffer=0, chunksize=100, compute=True):
+        """
+        Creates a mask for the grid based on the provided georegions.
+    
+        Parameters:
+        -----------
+        georegions: GeoDataFrame
+            The geospatial regions to create the mask from.
+        buffer: int, optional
+            Buffer distance around the georegions. Default is 0.
+        chunksize: int, optional
+            Chunk size for Dask array operations. Default is 100.
+        compute: bool, optional
+            Whether to compute the mask immediately. Default is True.
+    
+        Returns:
+        --------
+        xarray.DataArray or dask.array.Array:
+            The computed mask as an xarray DataArray if compute is True, otherwise as a Dask array.
+        """
+        # Create a mask using Dask and shapely
         mask = (
             georegions.poly_array(buffer, "dask")
             .rechunk(chunksize)
             .map_blocks(shapely.contains, self.centroids(), dtype=float)
         )
         if compute:
+            # Compute the mask if requested
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
+                # Compute and squeeze the mask, moving axis if necessary
                 # m = np.moveaxis(mask.compute().squeeze(), -1, 0)
                 m = mask.compute().squeeze()
                 da = xr.DataArray(
@@ -161,6 +224,7 @@ class Grid:
                 )
                 return da
         else:
+            # Return the Dask array mask without computing
             return mask
 
     @lru_cache(maxsize=None)
