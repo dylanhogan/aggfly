@@ -71,13 +71,20 @@ class SpatialAggregator:
         None
 
         """
+        # Ensure dataset is a list of Dataset objects
         if type(dataset) != list:
             self.dataset = [dataset]
         else:
             self.dataset = dataset
+        
+        # Rescale longitude for datasets if necessary
         _ = [x.rescale_longitude() for x in self.dataset if x.lon_is_360]
+        
+        # Assign grid and weights attributes
         self.grid = weights.grid
         self.weights = weights.weights
+        
+        # Ensure names is a list
         self.names = [names] if isinstance(names, str) else names
 
     def compute(self, npartitions: int = 30) -> pd.DataFrame:
@@ -95,14 +102,18 @@ class SpatialAggregator:
             A DataFrame containing the weighted average of the climate data over the regions and time periods.
         """
         # with dask.config.set({"multiprocessing.context": "forkserver"}):
+        # Begin computation process
         print("Computing...")
+        # Compute Dask arrays for the dataset
         clim_ds = dask.compute([x.da for x in self.dataset])[0] #, scheduler='processes'
         
+        # Combine datasets by coordinates
         print("Combining datasets...")
         clim_ds = xr.combine_by_coords(
             [x.to_dataset(name=self.names[i]) for i, x in enumerate(clim_ds)]
         )
 
+        # Stack the dataset to form a DataFrame with cell_id as the index
         print("Stacking...")
         clim_df = (
             clim_ds.stack({"cell_id": ["latitude", "longitude"]})
@@ -113,11 +124,13 @@ class SpatialAggregator:
             .dropna(subset=self.names)
         )
 
+        # Merge the climate data with the weights data
         print("Merging...")
         self.weights["region_id"] = self.weights.index_right
         merged_df = clim_df.merge(self.weights, how="inner", on="cell_id")
         merged_df = merged_df.dropna(subset=self.names)
 
+        # Group data by region_id and time, creating a unique group_ID for each group
         print("Grouping...")
         group_key = (
             merged_df[["region_id", "time"]]
@@ -127,16 +140,21 @@ class SpatialAggregator:
             .rename(columns={"index": "group_ID"})
         )
         
+        # Merge the grouped data back into the main DataFrame
         print("Merging again...")
         merged_df = merged_df.merge(group_key, on=["region_id", "time"]).set_index(
             "group_ID"
         )[["weight", *self.names]]
 
+        # Convert the merged DataFrame to a Dask DataFrame
         print("Creating Dask DataFrame...")
         ddf = dask.dataframe.from_pandas(merged_df, npartitions=50)
         
+        # Compute the weighted average of the climate data
         print("Aggregating...")
         out = self.weighted_average(ddf, self.names).compute()
+        
+        # Merge the aggregated data with the group keys and format the final DataFrame
         aggregated = (
             out.merge(group_key, how="right", left_index=True, right_on="group_ID")
             .drop(columns="group_ID")[["region_id", "time"] + self.names]
@@ -147,8 +165,28 @@ class SpatialAggregator:
     
     @staticmethod
     def weighted_average(ddf: dask.dataframe.DataFrame, names: List[str]) -> pd.DataFrame:
+        """
+        Compute the weighted average of the specified columns in the Dask DataFrame.
+    
+        Parameters:
+        -----------
+        ddf : dask.dataframe.DataFrame
+            The Dask DataFrame containing the data to be aggregated.
+        names : list of str
+            The names of the columns to compute the weighted average for.
+    
+        Returns:
+        --------
+        pd.DataFrame
+            A DataFrame containing the weighted averages of the specified columns.
+        """
+
+        # Multiply the specified columns by the weight column
         out = ddf[names].mul(ddf["weight"], axis=0)
+        # Add the weight column to the result
         out["weight"] = ddf["weight"]
+        # Group by the index and sum the groups
         out = out.groupby(out.index).sum()
+        # Divide the summed columns by the total weight to get the weighted average
         out = out[names].div(out["weight"], axis=0)
         return out
