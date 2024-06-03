@@ -31,6 +31,7 @@ from dask.diagnostics import ProgressBar
 ProgressBar().register()
 
 
+
 def transform_dataset(
     dataset: Dataset, key: str, **kwargs: Union[int, List[int]]
 ) -> Dict[str, Dataset]:
@@ -48,17 +49,27 @@ def transform_dataset(
         dict: A dictionary containing the transformed dataset(s).
     """
 
+    # Check if 'exp' keyword argument is provided
     if "exp" in kwargs:
+        # Ensure 'exp' is a list
         if not isinstance(kwargs["exp"], list):
             kwargs["exp"] = [kwargs["exp"]]
+        # Raise the dataset to the power of each exponent in the list
         dataset = [dataset.power(exp) for exp in kwargs["exp"][0]]
+        # Generate new keys for each transformed dataset
         new_keys = [f"{key}_{exp}" for exp in kwargs["exp"][0]]
+        # Create a dictionary with new keys and transformed datasets
         output_dict = dict(zip(new_keys, dataset))
+    # Check if 'inter' keyword argument is provided
     elif "inter" in kwargs:
+        # Interact the dataset with another dataset
         dataset = dataset.interact(kwargs["inter"])
+        # Create a dictionary with the original key and the interacted dataset
         output_dict = {key: dataset}
     else:
+        # Raise an error if neither 'exp' nor 'inter' is provided
         raise ValueError("No valid transform argument provided.")
+    # Return the values and keys of the transformed datasets dictionary
     return output_dict.values(), output_dict.keys()
 
 
@@ -88,21 +99,26 @@ def aggregate_time(
     aggregator_dict: Dict[str, Union[List[Tuple], TemporalAggregator]] = None,
     **kwargs,
 ) -> Dict[str, Dataset]:
+    # Check if aggregator_dict is provided, if not, use kwargs
     if aggregator_dict is None:
         if kwargs is None:
             raise ValueError("No arguments provided.")
         else:
             aggregator_dict = kwargs
     out_dict = {}
+    # Iterate over each key-value pair in aggregator_dict
     for key, value in aggregator_dict.items():
         keys = [key]
         data = [dataset.deepcopy()]
+        # Process each tuple in the value list
         for key2, value2 in value:
             if key2 == "aggregate":
+                # If 'aggregate' key is found, execute the temporal aggregator
                 if not isinstance(value2, TemporalAggregator):
                     value2 = TemporalAggregator(**value2)
                 data = [value2.execute(x, weights) for x in data]
 
+                # Handle multi_dd case for multiple data dimensions
                 if value2.multi_dd:
                     if len(data) > 1:
                         raise ValueError(
@@ -111,6 +127,7 @@ def aggregate_time(
                     data, keys = multi_dd_to_dict(data[0], key, value2.ddargs)
 
             elif key2 == "transform":
+                # If 'transform' key is found, apply transformation to the dataset
                 transformed_data, transformed_keys = [], []
                 for d, k in zip(data, keys):
                     d2, k2 = transform_dataset(d, k, **value2)
@@ -118,6 +135,7 @@ def aggregate_time(
                     transformed_keys.extend(k2)
                 data, keys = transformed_data, transformed_keys
 
+        # Update the output dictionary with the processed data
         data_dict = dict(zip(keys, data))
         out_dict = out_dict | data_dict
     return out_dict
@@ -134,12 +152,13 @@ def aggregate_space(
         dataset_dict (dict): A dictionary containing the datasets to aggregate, where
                             the keys are the names of the datasets and the values are the datasets themselves.
         weights (GridWeights): The weights to use for aggregation.
+        npartitions (int, optional): The number of partitions for parallel computation. Defaults to None.
 
     Returns:
         df: A dataframe containing the aggregated data.
     """
     
-    
+    # Convert the values of dataset_dict to a list
     dataset_list = list(dataset_dict.values())
     
     # client = distributed_client()
@@ -151,6 +170,7 @@ def aggregate_space(
         # progress(da_list)
         # for i, dataset in enumerate(dataset_list):
         #     dataset.da = da_list[i]
+    # Perform spatial aggregation on the dataset list with the specified weights
     df = SpatialAggregator(
         dataset_list, weights, names=list(dataset_dict.keys()),
     ).compute(npartitions=npartitions)
@@ -178,25 +198,38 @@ def aggregate_dataset(
         agg_dict (dict): A dictionary containing the arguments for creating TemporalAggregator objects.
                         The keys of the dictionary are names, and the values are a list of either tuples or TemporalAggregator objects.
                         If the list contains tuples, use them as arguments to instantiate a temporal aggregator.
+        dataset_dict (dict, optional): A dictionary containing pre-aggregated datasets. Defaults to None.
+        n_workers (int, optional): Number of workers for parallel processing. Defaults to 50.
+        threads_per_worker (int, optional): Number of threads per worker. Defaults to 1.
+        processes (bool, optional): Whether to use processes or threads. Defaults to True.
+        memory_limit (str, optional): Memory limit per worker. Defaults to None.
+        cluster_args (dict, optional): Additional arguments for cluster configuration. Defaults to {}.
+        **kwargs: Additional keyword arguments.
 
     Returns:
         df: A dataframe containing the aggregated data.
     """
 
+    # Check if a dataset is provided
     if dataset is None:
         raise ValueError("No dataset provided.")
-    
+
+    # If aggregator_dict is not provided, use kwargs
     if aggregator_dict is None and kwargs is not None:
         aggregator_dict = kwargs
-    
+
+    # Aggregate over time if aggregator_dict is provided
     if aggregator_dict is not None:
         dataset_dict = aggregate_time(dataset, weights, aggregator_dict)
+    # If no dataset_dict is provided, create a default one
     elif dataset_dict is None:
         dataset_dict = {"variable": dataset}
         if dataset_dict is None and dataset is None:
             raise ValueError("No aggregator dict or dataset dict provided.")
-
+    
+    # Aggregate over space using the dataset_dict
     df = aggregate_space(dataset_dict, weights)
+    # Merge the aggregated data with geographical regions
     df = (
         weights.georegions.shp[[weights.georegions.regionid]].merge(
             df, left_index=True, right_on="region_id"
@@ -223,6 +256,9 @@ def multi_dd_to_dict(data, key, ddargs):
     Returns:
         dict: A dictionary with keys generated from the given key and ddargs, and values from the list of datasets.
     """
+    # Generate keys by combining the base key with each pair of dimensions in ddargs
     keys = [f"{key}_{x[0]}_{x[1]}" for x in ddargs]
+    # Combine keys and data into a dictionary
     # data_dict = dict(zip(keys, data))
+    # Return the list of datasets and the generated keys
     return data, keys
