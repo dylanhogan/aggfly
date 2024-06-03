@@ -229,24 +229,44 @@ class Grid:
 
     @lru_cache(maxsize=None)
     def mask(self, buffer=0):
+        """
+        Creates a mask for the grid based on the provided georegions and buffer.
+    
+        Parameters:
+        -----------
+        buffer: int, optional
+            Buffer distance around the georegions. Default is 0.
+    
+        Returns:
+        --------
+        geopandas.GeoDataFrame:
+            The computed mask as a GeoDataFrame.
+        """
+        # Get the centroids of the grid
         centroids = self.grid.centroids()
+        # Create a GeoDataFrame from the centroids and set the CRS
         fc = gpd.GeoDataFrame(geometry=centroids.flatten()).set_crs("EPSG:4326")
 
+        # Convert the GeoDataFrame to a Dask GeoDataFrame with specified partitions
         # fc = fc.rechunk(chunks)[...,None]
         fc = dask_geopandas.from_geopandas(fc, npartitions=self.chunks)
 
+        # Simplify polygons if needed
         if self.simplify is not None:
             georegions = self.simplify_poly_array()
         else:
             georegions = self.georegions
 
+        # Create a polygon array with the specified buffer and chunks
         poly_array = georegions.poly_array(buffer, chunks=self.chunks).squeeze()
 
+        # Convert the polygon array to a Dask GeoDataFrame
         poly_shp = poly_array.shape
         poly_array = dask_geopandas.from_geopandas(
             gpd.GeoDataFrame(geometry=poly_array), npartitions=1
         )
 
+        # Perform spatial join to create the mask
         # mask = fc.map_blocks(shapely.within, poly_array, dtype=bool)
         mask = fc.sjoin(poly_array, predicate="within").compute()
 
@@ -261,11 +281,33 @@ class Grid:
         compute=True,
         intersect_cells=False,
     ):
-        # Generate dask array of geometries
+    """
+    Converts centroids to cells based on the provided georegions and other parameters.
+
+    Parameters:
+    -----------
+    georegions: GeoDataFrame
+        The geospatial regions to use for conversion.
+    buffer: int, optional
+        Buffer distance around the georegions. Default is 0.
+    chunksize: int, optional
+        Chunk size for Dask array operations. Default is 100.
+    datatype: str, optional
+        The type of data structure to return ("xarray"). Default is "xarray".
+    compute: bool, optional
+        Whether to compute the result immediately. Default is True.
+    intersect_cells: bool, optional
+        Whether to intersect cells. Default is False.
+
+    Returns:
+    --------
+    The computed cells based on centroids.
+    """
+        # Generate Dask array of geometries from georegions with the specified buffer
         pol = georegions.poly_array(buffer=buffer)
         print(pol)
 
-        # Generate mask array contining T/F for centroids within (buffered) geometry
+        # Generate mask array containing True/False for centroids within (buffered) geometry
         msk = self.mask(georegions, buffer=buffer)
         X, Y = np.meshgrid(msk.lon, msk.lat)
         cmask = xr.DataArray(
@@ -278,9 +320,10 @@ class Grid:
             ),
         )
 
-        #
+        # Move axis for longitude and latitude arrays where mask is True
         mlon = np.moveaxis(np.array(cmask.lon.where(cmask)), -1, 0)
         mlat = np.moveaxis(np.array(cmask.lat.where(cmask)), -1, 0)
+        # Create Dask arrays for the corners of the cells
         lonpoints = [
             dask.array.from_array(mlon + x, chunks=(chunksize, -1, -1))
             for x in [-self.resolution / 2, self.resolution / 2]
@@ -289,6 +332,7 @@ class Grid:
             dask.array.from_array(mlat + x, chunks=(chunksize, -1, -1))
             for x in [-self.resolution / 2, self.resolution / 2]
         ]
+        # Create Shapely boxes (cells) using the corners
         boxes = lonpoints[0].map_blocks(
             shapely.box, latpoints[0], lonpoints[1], latpoints[1], dtype=float
         )
