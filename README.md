@@ -79,7 +79,7 @@ You now load a sample layer of the climatic raster dataset that you want to aggr
 ```
 # Open example dataset to construct weights
 dataset = af.dataset_from_path(
-    f"/home3/dth2133/data/annual/tempPrecLand2017.zarr", 
+    f"~/data/annual/tempPrecLand2017.zarr", 
     var = 't2m',
     name = 'era5',
     georegions=georegions,
@@ -151,7 +151,7 @@ You first load the full dataset that you want to aggregate using the same proced
 
 ```
 dataset = af.dataset_from_path(
-    f"~//data/annual/tempPrecLand{year}.zarr", 
+    f"~/data/annual/tempPrecLand{year}.zarr", 
     var = 't2m',
     name = 'era5',
     georegions=georegions,
