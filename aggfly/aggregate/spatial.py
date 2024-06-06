@@ -1,3 +1,7 @@
+# This script defines the SpatialAggregator class, which is used to aggregate climate data over regions using weights.
+# The class includes methods to compute the spatial aggregation and to compute weighted averages of the data.
+
+
 """
 SpatialAggregator class that aggregates climate data over regions using weights.
 
