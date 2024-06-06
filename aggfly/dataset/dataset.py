@@ -1,3 +1,7 @@
+# This script defines the Dataset class used to represent and manipulate gridded climate data.
+# It includes methods for initializing the dataset, performing preprocessing, clipping data to specific regions,
+# computing the data array, and applying operations like power and interaction with another dataset.
+
 from copy import deepcopy
 from typing import Callable, Tuple, Union, List, Dict, Any, Optional
 import numpy as np
