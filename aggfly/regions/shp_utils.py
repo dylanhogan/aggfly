@@ -1,3 +1,6 @@
+# This script provides utility functions to open and cache various shapefiles (USA states, counties, and global countries)
+# using geopandas. These are used for examples.
+
 import numpy as np
 import pandas as pd
 import xarray as xr
