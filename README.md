@@ -177,29 +177,23 @@ output_df = af.aggregate_dataset(
 )
 ```
 
-Notice that the function will first compute the aggregation across time in the way described by the lists of 
+Notice that the function will first compute the aggregation across time in the way described by the lists of transformations specified in the arguments.
 
 Main arguments:
-- **dataset**: The complete raster that you have just loaded, which contains the climatic data you want to aggregate.
+- **dataset**: The complete raster that you have just loaded, which contains the gridded data you want to aggregate.
 - **georegions**: The georegions object you have previously created.
-- **weights**: 
-
-**TO COMPLETE**
-agg_dict (dict): A dictionary containing the arguments for creating TemporalAggregator objects.
-                        The keys of the dictionary are names, and the values are a list of either tuples or TemporalAggregator objects.
-                        If the list contains tuples, use them as arguments to instantiate a temporal aggregator.
-
+- **weights**: The weights object you have defined, which is used to apply spatial weighting to the gridded data.
+- **agg_dict**: A dictionary containing the arguments for creating TemporalAggregator objects. The keys of the dictionary are names, and the values are a list of either tuples or TemporalAggregator objects. If the list contains tuples, use them as arguments to instantiate a temporal aggregator.
 
 
 Available transformations include:
 
-- **mean** computes the average value of the within the time period specified by ```groupby```.
-- **min** computes the minimum value within the time period.
-- **max**: computes the maximum value within the time period.
-- **sum**: computes the sum over the time period.
-- **dd**: 
-- **bin**:
-- **exp**: computes the polynomials of the specified degrees.
-
+- **mean** Computes the average value of the within the time period specified by ```groupby```.
+- **min** Computes the minimum value within the time period.
+- **max**: Computes the maximum value within the time period.
+- **sum**: Computes the sum over the time period.
+- **dd** (Degree Days): Calculates degree days, which are a measure of heating or cooling. It sums the number of degrees that a temperature is above (cooling) or below (heating) a base temperature.
+- **bin**: Divides the data into bins based on specified thresholds, counting occurrences within those bins.
+- **exp** (Exponentiation): Computes the values raised to the specified powers, creating polynomial transformations of the data.
 
 For a more detailed application of the aggregation, refer to the example notebook.
