@@ -1,3 +1,6 @@
+# This script provides utility functions converting longitudes between different ranges,
+# generating grid centroids, and preprocessing ERA5-Land datasets by adjusting longitudes, sorting, and extracting time components.
+
 import numpy as np
 import pandas as pd
 import xarray as xr
