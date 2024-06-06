@@ -1,3 +1,7 @@
+# This script defines the Grid class, which represents a spatial grid with longitude and latitude coordinates.
+# It includes methods to compute centroids, determine resolution, calculate cell area, generate index arrays, clip grid to georegions or bounding boxes, 
+# create masks based on georegions, and convert centroids to cells.
+
 import numpy as np
 import pandas as pd
 import xarray as xr
