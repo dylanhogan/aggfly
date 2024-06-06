@@ -1,3 +1,8 @@
+# This script provides a class and utility functions for handling crop-specific raster weights used in geospatial analysis.
+# The CropWeights class extends RasterWeights, allowing for the creation, caching, and management of raster data specific
+# to different crop types. Additionally, functions are provided to create CropWeights objects from file paths or predefined 
+# names (used as examples), as well as to open and format crop raster files.
+
 import os
 import warnings
 from functools import lru_cache
