@@ -73,6 +73,26 @@ def transform_dataset(
     return output_dict.values(), output_dict.keys()
 
 
+# def aggregate_time(
+#     dataset: Dataset,
+#     weights: GridWeights = None,
+#     aggregator_dict: Dict[str, Union[List[Tuple], TemporalAggregator]] = None,
+#     **kwargs,
+# ) -> Dict[str, Dataset]:
+#     """
+#     Aggregate a dataset over time using the specified temporal aggregators.
+
+#     Args:
+#         dataset (Dataset): The dataset to aggregate.
+#         weights (GridWeights, optional): The weights to use for aggregation. Defaults to None.
+#         aggregator_dict (Dict[str, Union[List[Tuple], TemporalAggregator]], optional): A dictionary of temporal aggregators to apply to the dataset. Defaults to None.
+#         **kwargs: Additional keyword arguments to use if `aggregator_dict` is not provided.
+
+#     Returns:
+#         Dict[str, Dataset]: A dictionary of aggregated datasets, with keys corresponding to the keys in `aggregator_dict`.
+#     """
+
+
 def aggregate_time(
     dataset: Dataset,
     weights: GridWeights = None,
@@ -91,14 +111,6 @@ def aggregate_time(
     Returns:
         Dict[str, Dataset]: A dictionary of aggregated datasets, with keys corresponding to the keys in `aggregator_dict`.
     """
-
-
-def aggregate_time(
-    dataset: Dataset,
-    weights: GridWeights = None,
-    aggregator_dict: Dict[str, Union[List[Tuple], TemporalAggregator]] = None,
-    **kwargs,
-) -> Dict[str, Dataset]:
     # Check if aggregator_dict is provided, if not, use kwargs
     if aggregator_dict is None:
         if kwargs is None:
