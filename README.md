@@ -6,8 +6,6 @@ NOTE: `aggfly` is still in development and may not be stable for new users. Plea
 
 ## Overview: Why `aggfly`?
 
-TODO: Brief introduction on the purpose of aggfly.
-
 `aggfly` is a Python package developed to facilitate and harmonize the temporal and spatial aggregation of gridded climate data. It is designed to perform linear and nonlinear aggregations of weather data across different time periods, such as calculating degree days and daily polynomials, providing a detailed analysis of climatic variations over time. Additionally, the package supports spatial aggregation by weighting gridded data according to administrative boundaries and local exposures like human populations and crop distributions.
 
 The package automates complex and memory-intensive geospatial operations, which are common challenges for researchers dealing with large climate datasets. This automation simplifies the process, making it more accessible for users who need to handle and analyze extensive climate data. `aggfly` offers a variety of functional forms for data analysis, including average, sum, min, max, degree days, bins, and polynomials. 
