@@ -1,3 +1,7 @@
+# This script defines the PopWeights class for handling population-based raster weights.
+# It includes functions for initializing PopWeights objects, loading population raster files,
+# and creating PopWeights from predefined names or file paths.
+
 import os
 import warnings
 from functools import lru_cache
