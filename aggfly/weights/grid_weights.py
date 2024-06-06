@@ -1,3 +1,7 @@
+# This script defines the GridWeights class for calculating spatial weights over a geographical grid. 
+# It includes methods to calculate weights, simplify polygons, mask grids, and handle area-based weights. 
+# Additionally, utility functions are provided for creating GridWeights objects from various data sources.
+
 import os
 import warnings
 from functools import lru_cache
