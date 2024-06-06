@@ -1,3 +1,7 @@
+# This script defines the TemporalAggregator class, which is used to aggregate temporal data.
+# It provides various methods to compute mean, sum, degree days (dd), bins, min, and max over specified time frequencies.
+# The class includes functions to assign appropriate aggregation functions, handle degree days and bins calculations, and execute the aggregation process.
+
 from copy import deepcopy
 import os
 # os.environ['USE_PYGEOS'] = '0'
