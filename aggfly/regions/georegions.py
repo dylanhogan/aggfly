@@ -1,3 +1,7 @@
+# This script defines the GeoRegions class for representing and manipulating geographical regions using shapefiles.
+# It includes methods for initializing the GeoRegions object, selecting and dropping regions, generating polygon arrays,
+# and plotting region boundaries. Additionally, it provides utility functions for loading GeoRegions from paths or names.
+
 import os
 from typing import List, Optional, Union
 import numpy as np
