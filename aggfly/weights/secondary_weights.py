@@ -1,3 +1,6 @@
+# This script defines the RasterWeights class and its subclass SecondaryWeights, used for variables such as population or crop land covered, for handling raster-based weights.
+# It includes methods for initializing these objects, rescaling rasters to match a grid, caching results, and creating weights from file paths.
+
 from pprint import pformat, pprint
 import numpy as np
 import xarray as xr
