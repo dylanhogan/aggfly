@@ -12,6 +12,10 @@ The package automates complex and memory-intensive geospatial operations, which 
 
 aggfly is useful for researchers in various fields who study the impacts of weather and climate on other variables, such as human health, agriculture, and economic growth. 
 
+## Acknowledgements 
+
+TODO
+
 ## Installation
 
 ### Required dependencies
