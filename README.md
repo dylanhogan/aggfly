@@ -24,7 +24,15 @@ TODO
 ### Instructions
 Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)).
 
-1. Use `pip` to install package from PyPI:
+1. Create your conda environment by running the following command from your terminal:
+
+```
+conda env create --name aggfly-dev 
+```
+
+with ```aggfly-dev``` being the name of the environment you will create. For other details on how to manage environments, check out the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).   
+
+2. Use `pip` to install package from PyPI:
 ```
 pip install aggfly
 ```
