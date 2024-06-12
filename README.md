@@ -32,7 +32,7 @@ conda env create --name aggfly-dev
 
 with ```aggfly-dev``` being the name of the environment you will create. For other details on how to manage environments, check out the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).   
 
-2. Use `pip` to install package from PyPI:
+2. Use `pip` to install the package from PyPI:
 ```
 pip install aggfly
 ```
