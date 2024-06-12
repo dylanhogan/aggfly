@@ -22,7 +22,7 @@ TODO
 - Python (3.11.6 or later)
 
 ### Instructions
-Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)).
+Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) for the installation).
 
 1. Create your conda environment by running the following command from your terminal:
 
