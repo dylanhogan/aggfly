@@ -1,16 +1,14 @@
 from copy import deepcopy
 import os
-# os.environ['USE_PYGEOS'] = '0'
+import warnings
 
 import numpy as np
 import dask.array as da
 from .aggregate_utils import *
 from ..dataset import Dataset, array_lon_to_360
 from ..weights import GridWeights
-
-import numpy as np
 from typing import List, Union
-from copy import deepcopy
+
 
 class TemporalAggregator:
     """
@@ -50,12 +48,32 @@ class TemporalAggregator:
         Executes the aggregation and returns the result.
     """
 
-    def __init__(self, calc: str, groupby: str, ddargs: List[Union[int, float]] = None):
+    def __init__(
+        self,
+        calc: str,
+        groupby: str,
+        ddargs: List[Union[int, float]] = None,
+        pre_compute: bool = False,
+    ):
         self.calc = calc
         self.groupby = translate_groupby(groupby)
         self.kwargs = {}
         self.ddargs = self.get_ddargs(ddargs)
         self.func = self.assign_func()
+        self.pre_compute = pre_compute
+
+        if self.calc == "sine_dd":
+            warnings.warn(
+                """
+                Sine-interpolated degree day aggregation requires that the 
+                dataset be loaded into memory before computation. This can
+                have memory and efficiency implications, especially if applied to high resolution
+                datasets or hourly data. If the latter, consider using the standard
+                degree day method or aggregating to daily max and min before calculating 
+                sine-interpolated degree days
+                """
+            )
+            self.pre_compute = True
 
     def assign_func(self):
         """
@@ -86,6 +104,12 @@ class TemporalAggregator:
             f = np.min
         if self.calc == "max":
             f = np.max
+        elif self.calc == "sine_dd":
+            if self.multi_dd:
+                f = _multi_sine_dd
+            else:
+                f = _sine_dd
+            self.kwargs = {"ddargs": self.ddargs}
         return f
 
     def get_ddargs(self, ddargs: List[Union[int, float]]) -> List[Union[int, float]]:
@@ -113,7 +137,13 @@ class TemporalAggregator:
                 self.multi_dd = False
             return ddargs
 
-    def execute(self, dataset: Dataset, weights: GridWeights = None, update: bool = False, **kwargs) -> Dataset:
+    def execute(
+        self,
+        dataset: Dataset,
+        weights: GridWeights = None,
+        update: bool = False,
+        **kwargs
+    ) -> Dataset:
         """
         Executes the aggregation and returns the result.
 
@@ -147,7 +177,15 @@ class TemporalAggregator:
         else:
             if not update:
                 dataset = deepcopy(dataset)
-        with dask.config.set(**{'array.slicing.split_large_chunks': False}):
+
+        if self.pre_compute:
+            # raise warning about pre_compute
+            warnings.warn(
+                "Pre-computing the aggregation may result in memory errors for large datasets."
+            )
+            ds = ds.compute()
+
+        with dask.config.set(**{"array.slicing.split_large_chunks": False}):
             out = ds.resample(time=self.groupby).reduce(self.func, **self.kwargs)
 
         if self.multi_dd:
@@ -184,6 +222,73 @@ def _dd(frame, axis, ddargs):
 
 def _multi_dd(frame, axis, ddargs):
     return da.concatenate([_dd(frame, axis, ddarg) for ddarg in ddargs], axis=-1)
+
+
+def _sine_dd(frame, axis, ddargs):
+    # frame = frame.compute()
+    tmax = np.max(frame, axis=axis)
+    dd_shape = tmax.shape
+    tmax = tmax.flatten()
+    tmin = np.min(frame, axis=axis).flatten()
+    tavg = (tmax + tmin) / 2
+    alpha = (tmax - tmin) / 2
+    degree_day_list = []
+    if ddargs[2] == 0:
+        for threshold in ddargs[0:2]:
+            arr = np.full_like(tavg, fill_value=np.nan)
+            arr[threshold >= tmax,] = np.zeros_like(tmax)[threshold >= tmax,]
+            arr[threshold <= tmin,] = (tavg - threshold)[threshold <= tmin,]
+            ii = (threshold < tmax) & (threshold > tmin)
+            arr[ii] = (
+                (tavg[ii] - threshold)
+                * np.arccos(
+                    (2 * threshold - tmax[ii] - tmin[ii]) / (tmax[ii] - tmin[ii])
+                )
+                + (tmax[ii] - tmin[ii])
+                * np.sin(
+                    np.arccos(
+                        (2 * threshold - tmax[ii] - tmin[ii]) / (tmax[ii] - tmin[ii])
+                    )
+                )
+                / 2
+            ) / np.pi
+            degree_day_list.append(arr)
+        degree_days = degree_day_list[0] - degree_day_list[1]
+    elif ddargs[2] == 1:
+        for threshold in ddargs[0:2]:
+            arr = np.full_like(tavg, fill_value=np.nan)
+            arr[(threshold >= tmax)] = (threshold - tavg)[(threshold >= tmax)]
+            arr[(threshold <= tmin)] = np.zeros_like(arr)[(threshold <= tmin)]
+            ii = (threshold < tmax) * (threshold > tmin)
+            arr[ii] = (1 / (np.pi)) * (
+                (threshold - tavg[ii])
+                * (
+                    np.arctan(
+                        ((threshold - tavg[ii]) / alpha[ii])
+                        / np.sqrt(1 - ((threshold - tavg[ii]) / alpha[ii]) ** 2)
+                    )
+                    + (np.pi / 2)
+                )
+                + alpha[ii]
+                * np.cos(
+                    (
+                        np.arctan(
+                            ((threshold - tavg[ii]) / alpha[ii])
+                            / np.sqrt(1 - ((threshold - tavg[ii]) / alpha[ii]) ** 2)
+                        )
+                    )
+                )
+            )
+            degree_day_list.append(arr)
+        degree_days = degree_day_list[1] - degree_day_list[0]
+    else:
+        raise ValueError("Invalid degree day type")
+
+    return degree_days.reshape(dd_shape)
+
+
+def _multi_sine_dd(frame, axis, ddargs):
+    return da.concatenate([_sine_dd(frame, axis, ddarg) for ddarg in ddargs], axis=-1)
 
 
 def _bins(frame, axis, ddargs):

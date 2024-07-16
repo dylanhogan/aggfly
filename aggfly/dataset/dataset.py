@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
-import numba
+# import numba
 import dask
 import dask.array
 
@@ -436,12 +436,12 @@ class Dataset:
             return slf
 
 
-@numba.njit(fastmath=True, parallel=True)
+# @numba.njit(fastmath=True, parallel=True)
 def _power(array, exp):
     return np.power(array, exp)
 
 
-@numba.njit(fastmath=True, parallel=True)
+# @numba.njit(fastmath=True, parallel=True)
 def _interact(array, inter):
     return np.multiply(array, inter)
 
@@ -501,8 +501,12 @@ def dataset_from_path(
         if "*" in path or type(path) is list:
             
                 array = xr.open_mfdataset(
-                    path, preprocess=preprocess, parallel=True, chunks=chunks, **kwargs
+                    path, preprocess=preprocess, chunks=chunks, **kwargs
                 )
+                
+                # array = xr.open_mfdataset(
+                #     path
+                # )               
 
                 preprocess = None
 
