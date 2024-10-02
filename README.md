@@ -1,10 +1,11 @@
 
-# `aggfly`
+# aggfly: Efficient climate data aggregation
+[![PyPI version](https://badge.fury.io/py/aggfly.svg)](https://badge.fury.io/py/aggfly)
 
-NOTE: `aggfly` is still in development and may not be stable for new users. Please proceed with caution.
+NOTE: aggfly is still in development and may not be stable for new users. Please proceed with caution.
 
 
-## Overview: Why `aggfly`?
+## Overview: Why aggfly?
 
 `aggfly` is a Python package developed to facilitate and harmonize the temporal and spatial aggregation of gridded climate data. It is designed to perform linear and nonlinear aggregations of weather data across different time periods, such as calculating degree days and daily polynomials, providing a detailed analysis of climatic variations over time. Additionally, the package supports spatial aggregation by weighting gridded data according to administrative boundaries and local exposures like human populations and crop distributions.
 
@@ -19,9 +20,10 @@ aggfly is useful for researchers in various fields who study the impacts of weat
 ## Installation
 
 ### Required dependencies
-- Python (3.11.6 or later)
+- Python 3.11.6-3.12.2
 
 ### Instructions
+
 Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) for the installation).
 
 1. Create your conda environment by running the following command from your terminal:
