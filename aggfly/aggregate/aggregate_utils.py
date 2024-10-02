@@ -1,3 +1,7 @@
+# This script sets up and manages the Dask distributed computing environment.
+# It includes functions to check if the environment is distributed, retrieve the global Dask client,
+# start a Dask client with specified configurations, and shut down the client when needed.
+
 import dask.distributed
 from dask.distributed import Client
 import logging

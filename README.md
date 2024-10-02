@@ -7,7 +7,15 @@ NOTE: aggfly is still in development and may not be stable for new users. Please
 
 ## Overview: Why aggfly?
 
-TODO: Brief introduction on the purpose of aggfly.
+`aggfly` is a Python package developed to facilitate and harmonize the temporal and spatial aggregation of gridded climate data. It is designed to perform linear and nonlinear aggregations of weather data across different time periods, such as calculating degree days and daily polynomials, providing a detailed analysis of climatic variations over time. Additionally, the package supports spatial aggregation by weighting gridded data according to administrative boundaries and local exposures like human populations and crop distributions.
+
+The package automates complex and memory-intensive geospatial operations, which are common challenges for researchers dealing with large climate datasets. This automation simplifies the process, making it more accessible for users who need to handle and analyze extensive climate data. `aggfly` offers a variety of functional forms for data analysis, including average, sum, min, max, degree days, bins, and polynomials. 
+
+aggfly is useful for researchers in various fields who study the impacts of weather and climate on other variables, such as human health, agriculture, and economic growth. 
+
+## Acknowledgements 
+
+(TO DO) We gratefully acknowledge the support and funding provided by the International Growth Center, Private Enterprise Development in Low Income Countries and Columbia Business School. Their resources and assistance were instrumental in the development of this package. We extend our sincere thanks for their commitment to advancing research and innovation.
 
 ## Installation
 
@@ -15,9 +23,18 @@ TODO: Brief introduction on the purpose of aggfly.
 - Python 3.11.6-3.12.2
 
 ### Instructions
-Since aggfly relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)).
 
-1. Use `pip` to install package from PyPI:
+Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) for the installation).
+
+1. Create your conda environment by running the following command from your terminal:
+
+```
+conda env create --name aggfly-dev 
+```
+
+with ```aggfly-dev``` being the name of the environment you will create. For other details on how to manage environments, check out the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).   
+
+2. Use `pip` to install the package from PyPI:
 ```
 pip install aggfly
 ```
@@ -76,7 +93,7 @@ You now load a sample layer of the climatic raster dataset that you want to aggr
 ```
 # Open example dataset to construct weights
 dataset = af.dataset_from_path(
-    f"/home3/dth2133/data/annual/tempPrecLand2017.zarr", 
+    f"~/data/annual/tempPrecLand2017.zarr", 
     var = 't2m',
     name = 'era5',
     georegions=georegions,
@@ -148,7 +165,7 @@ You first load the full dataset that you want to aggregate using the same proced
 
 ```
 dataset = af.dataset_from_path(
-    f"~//data/annual/tempPrecLand{year}.zarr", 
+    f"~/data/annual/tempPrecLand{year}.zarr", 
     var = 't2m',
     name = 'era5',
     georegions=georegions,
@@ -178,29 +195,23 @@ output_df = af.aggregate_dataset(
 )
 ```
 
-Notice that the function will first compute the aggregation across time in the way described by the lists of 
+Notice that the function will first compute the aggregation across time in the way described by the lists of transformations specified in the arguments.
 
 Main arguments:
-- **dataset**: The complete raster that you have just loaded, which contains the climatic data you want to aggregate.
+- **dataset**: The complete raster that you have just loaded, which contains the gridded data you want to aggregate.
 - **georegions**: The georegions object you have previously created.
-- **weights**: 
-
-**TO COMPLETE**
-agg_dict (dict): A dictionary containing the arguments for creating TemporalAggregator objects.
-                        The keys of the dictionary are names, and the values are a list of either tuples or TemporalAggregator objects.
-                        If the list contains tuples, use them as arguments to instantiate a temporal aggregator.
-
+- **weights**: The weights object you have defined, which is used to apply spatial weighting to the gridded data.
+- **agg_dict**: A dictionary containing the arguments for creating TemporalAggregator objects. The keys of the dictionary are names, and the values are a list of either tuples or TemporalAggregator objects. If the list contains tuples, use them as arguments to instantiate a temporal aggregator.
 
 
 Available transformations include:
 
-- **mean** computes the average value of the within the time period specified by ```groupby```.
-- **min** computes the minimum value within the time period.
-- **max**: computes the maximum value within the time period.
-- **sum**: computes the sum over the time period.
-- **dd**: 
-- **bin**:
-- **exp**: computes the polynomials of the specified degrees.
-
+- **mean** Computes the average value of the within the time period specified by ```groupby```.
+- **min** Computes the minimum value within the time period.
+- **max**: Computes the maximum value within the time period.
+- **sum**: Computes the sum over the time period.
+- **dd** (Degree Days): Calculates degree days, which are a measure of heating or cooling. It sums the number of degrees that a temperature is above (cooling) or below (heating) a base temperature.
+- **bin**: Divides the data into bins based on specified thresholds, counting occurrences within those bins.
+- **exp** (Exponentiation): Computes the values raised to the specified powers, creating polynomial transformations of the data.
 
 For a more detailed application of the aggregation, refer to the example notebook.
