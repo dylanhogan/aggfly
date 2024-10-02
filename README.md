@@ -15,7 +15,7 @@ aggfly is useful for researchers in various fields who study the impacts of weat
 
 ## Acknowledgements 
 
-(TO DO) We gratefully acknowledge the support and funding provided by the International Growth Center, Private Enterprise Development in Low Income Countries and Columbia Business School. Their resources and assistance were instrumental in the development of this package. We extend our sincere thanks for their commitment to advancing research and innovation.
+I gratefully acknowledge the support and funding provided by Private Enterprise Development in Low Income Countries, the International Growth Center, and Columbia Business School. Their resources and assistance were instrumental in the development of this package. We extend our sincere thanks for their commitment to advancing research and innovation.
 
 ## Installation
 
