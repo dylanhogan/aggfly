@@ -45,9 +45,9 @@ pip install aggfly
 You may want to use aggfly to run batch jobs or in Jupyter sessions. In the case in which you experience issues when accessing the environment in Jupyter, try [this](https://ipython.readthedocs.io/en/latest/install/kernel_install.html#kernels-for-different-environments) to make the environment you have created available in Jupyter. In some of the cases, it will be sufficient to run the following commands:
 
 ```
-conda activate <environment_name>
+conda activate aggfly-dev
 conda install ipykernel
-python -m ipykernel install --user --name <environment_name>
+python -m ipykernel install --user --name aggfly-dev
 conda deactivate
 ``` 
 
