@@ -29,7 +29,8 @@ Since `aggfly` relies on several packages with version restrictions, we recommen
 1. Create your conda environment by running the following command from your terminal:
 
 ```
-conda env create --name aggfly-dev 
+conda create --name aggfly-dev python==3.12.2 pip
+conda activate aggfly-dev
 ```
 
 with ```aggfly-dev``` being the name of the environment you will create. For other details on how to manage environments, check out the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).   
