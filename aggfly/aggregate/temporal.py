@@ -69,18 +69,18 @@ class TemporalAggregator:
         self.func = self.assign_func()
         self.pre_compute = pre_compute
 
-        if self.calc == "sine_dd":
-            warnings.warn(
-                """
-                Sine-interpolated degree day aggregation requires that the 
-                dataset be loaded into memory before computation. This can
-                have memory and efficiency implications, especially if applied to high resolution
-                datasets or hourly data. If the latter, consider using the standard
-                degree day method or aggregating to daily max and min before calculating 
-                sine-interpolated degree days
-                """
-            )
-            self.pre_compute = True
+        # if self.calc == "sine_dd":
+        #     warnings.warn(
+        #         """
+        #         Sine-interpolated degree day aggregation requires that the 
+        #         dataset be loaded into memory before computation. This can
+        #         have memory and efficiency implications, especially if applied to high resolution
+        #         datasets or hourly data. If the latter, consider using the standard
+        #         degree day method or aggregating to daily max and min before calculating 
+        #         sine-interpolated degree days
+        #         """
+        #     )
+        #     self.pre_compute = True
 
     def assign_func(self):
         """
@@ -284,68 +284,81 @@ def _multi_dd(frame, axis, ddargs):
     # Apply the '_dd' function for each ddarg in ddargs and concatenate the results along the specified axis
     return da.concatenate([_dd(frame, axis, ddarg) for ddarg in ddargs], axis=-1)
 
-
 def _sine_dd(frame, axis, ddargs):
-    # frame = frame.compute()
-    tmax = np.max(frame, axis=axis)
-    dd_shape = tmax.shape
-    tmax = tmax.flatten()
-    tmin = np.min(frame, axis=axis).flatten()
-    tavg = (tmax + tmin) / 2
-    alpha = (tmax - tmin) / 2
     degree_day_list = []
     if ddargs[2] == 0:
         for threshold in ddargs[0:2]:
-            arr = np.full_like(tavg, fill_value=np.nan)
-            arr[threshold >= tmax,] = np.zeros_like(tmax)[threshold >= tmax,]
-            arr[threshold <= tmin,] = (tavg - threshold)[threshold <= tmin,]
-            ii = (threshold < tmax) & (threshold > tmin)
-            arr[ii] = (
-                (tavg[ii] - threshold)
-                * np.arccos(
-                    (2 * threshold - tmax[ii] - tmin[ii]) / (tmax[ii] - tmin[ii])
-                )
-                + (tmax[ii] - tmin[ii])
-                * np.sin(
-                    np.arccos(
-                        (2 * threshold - tmax[ii] - tmin[ii]) / (tmax[ii] - tmin[ii])
-                    )
-                )
-                / 2
-            ) / np.pi
-            degree_day_list.append(arr)
+            degree_day_list.append(_sine_cdd(frame, axis, threshold))
         degree_days = degree_day_list[0] - degree_day_list[1]
     elif ddargs[2] == 1:
         for threshold in ddargs[0:2]:
-            arr = np.full_like(tavg, fill_value=np.nan)
-            arr[(threshold >= tmax)] = (threshold - tavg)[(threshold >= tmax)]
-            arr[(threshold <= tmin)] = np.zeros_like(arr)[(threshold <= tmin)]
-            ii = (threshold < tmax) * (threshold > tmin)
-            arr[ii] = (1 / (np.pi)) * (
-                (threshold - tavg[ii])
-                * (
-                    np.arctan(
-                        ((threshold - tavg[ii]) / alpha[ii])
-                        / np.sqrt(1 - ((threshold - tavg[ii]) / alpha[ii]) ** 2)
-                    )
-                    + (np.pi / 2)
+            degree_day_list.append(_sine_hdd(frame, axis, threshold))
+        degree_days = degree_day_list[1] - degree_day_list[0]
+    else:
+        raise ValueError("Invalid ddargs[2] value")
+    return degree_days
+
+
+def _sine_cdd(frame, axis, threshold):
+    nan_cells = da.where(np.isnan(frame[:, :, 0]), np.nan, 1)
+    output = np.zeros_like(frame[:, :, 0])
+    tmax = frame.max(axis=axis)
+    tmin = frame.min(axis=axis)
+    tavg = frame.mean(axis=axis)
+    case_2 = da.where(threshold <= np.min(frame, axis=axis), tavg - threshold, 0)
+    case_3 = da.where(
+        (threshold < np.max(frame, axis=axis))
+        & (np.min(frame, axis=axis) < threshold),
+        (
+            (tavg - threshold)
+            * np.arccos((2 * threshold - tmax - tmin) / (tmax - tmin))
+            + (tmax - tmin)
+            * np.sin(np.arccos((2 * threshold - tmax - tmin) / (tmax - tmin)))
+            / 2
+        )
+        / np.pi,
+        0,
+    )
+    output = (output + case_2 + case_3) * nan_cells
+    return output
+
+
+def _sine_hdd(frame, axis, threshold):
+    nan_cells = da.where(np.isnan(frame[:, :, 0]), np.nan, 1)
+    output = np.zeros_like(frame[:, :, 0])
+    tmax = frame.max(axis=axis)
+    tmin = frame.min(axis=axis)
+    tavg = frame.mean(axis=axis)
+    case_2 = da.where((threshold >= tmax), threshold - tavg, 0)
+    case_3 = da.where(
+        (threshold < np.max(frame, axis=axis))
+        & (np.min(frame, axis=axis) < threshold),
+        (1 / (np.pi))
+        * (
+            (threshold - tavg)
+            * (
+                np.arctan(
+                    ((threshold - tavg) / ((tmax - tmin) / 2))
+                    / np.sqrt(1 - ((threshold - tavg) / ((tmax - tmin) / 2)) ** 2)
                 )
-                + alpha[ii]
-                * np.cos(
-                    (
-                        np.arctan(
-                            ((threshold - tavg[ii]) / alpha[ii])
-                            / np.sqrt(1 - ((threshold - tavg[ii]) / alpha[ii]) ** 2)
+                + (np.pi / 2)
+            )
+            + ((tmax - tmin) / 2)
+            * np.cos(
+                (
+                    np.arctan(
+                        ((threshold - tavg) / ((tmax - tmin) / 2))
+                        / np.sqrt(
+                            1 - ((threshold - tavg) / ((tmax - tmin) / 2)) ** 2
                         )
                     )
                 )
             )
-            degree_day_list.append(arr)
-        degree_days = degree_day_list[1] - degree_day_list[0]
-    else:
-        raise ValueError("Invalid degree day type")
-
-    return degree_days.reshape(dd_shape)
+        ),
+        0,
+    )
+    output = (output + case_2 + case_3) * nan_cells
+    return output
 
 
 def _multi_sine_dd(frame, axis, ddargs):
@@ -405,7 +418,7 @@ def translate_groupby(groupby):
     Parameters:
     -----------
     groupby: str
-        The string indicating the grouping frequency ("date", "month", "year").
+        The string indicating the grouping frequency ("date", "month", "year", "week").
 
     Returns:
     --------
@@ -413,4 +426,4 @@ def translate_groupby(groupby):
         The corresponding frequency string for resampling.
     """
     # Translate the groupby string to a frequency string using a dictionary lookup
-    return {"date": "1D", "month": "ME", "year": "YE"}[groupby]
+    return {"date": "1D", "month": "ME", "year": "YE", "week": "W"}[groupby]

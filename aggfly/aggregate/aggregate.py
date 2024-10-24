@@ -66,6 +66,10 @@ def transform_dataset(
         dataset = dataset.interact(kwargs["inter"])
         # Create a dictionary with the original key and the interacted dataset
         output_dict = {key: dataset}
+    elif "spline" in kwargs['transform']:
+        datasets = dataset.spline()
+        new_keys = [f"{key}_spline{x}" for x in [1,2]]
+        output_dict = dict(zip(new_keys, datasets))
     else:
         # Raise an error if neither 'exp' nor 'inter' is provided
         raise ValueError("No valid transform argument provided.")

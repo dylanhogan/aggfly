@@ -182,6 +182,7 @@ class Grid:
         self.index = np.indices(self.lon_array.flatten().shape).reshape(
             self.lon_array.shape
         )
+        self.cell_id = self.index.flatten()
 
     @lru_cache(maxsize=None)
     def mask(self, georegions, buffer=0, chunksize=100, compute=True):

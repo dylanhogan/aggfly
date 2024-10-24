@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
+import matplotlib
 
 # import pygeos
 import dask
@@ -430,7 +431,7 @@ class GridWeights:
 
         return gdict
     
-    def plot_weights(self, region, type='total', **kwargs):
+    def plot_weights(self, region, type='total', log=False, ax=None, legend=False, **kwargs):
         """
         Plot the weights for a specific region.
     
@@ -474,11 +475,16 @@ class GridWeights:
         # print(plot_df)
 
         # Plot the weights
-        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 10))
         # plot_ds[wvar].plot(ax=ax)
 
-        plot_shp.plot(ax=ax, edgecolor='black', linewidth=2, color='none')
-        plot_df.plot(ax=ax, column=wvar, alpha=0.75, legend=True)
+        # if log==True:
+        # plot_df[wvar] = np.log(plot_df[wvar]+1)
+        plot_df['normalized_weights'] = (plot_df[wvar] / plot_df[wvar].max())
+        
+        plot_df.plot(ax=ax, column='normalized_weights', alpha=1, legend=legend, **kwargs)
+        plot_shp.plot(ax=ax, edgecolor='red', linewidth=2, color='none')
         
 
 

@@ -328,7 +328,7 @@ def timefix(array, split_chunks=False):
         return array
 
 
-def clean_dims(da, xycoords):
+def clean_dims(da, xycoords, timecoord):
     """
     Renames the dimensions of a DataArray to "longitude" and "latitude" if they are different, and transposes the DataArray.
 
@@ -338,6 +338,8 @@ def clean_dims(da, xycoords):
         The data array to clean dimensions.
     xycoords: tuple
         The current names of the spatial coordinates (longitude, latitude).
+    timecoord: str
+        The current name of the time coordinate.
 
     Returns:
     --------
@@ -347,5 +349,8 @@ def clean_dims(da, xycoords):
     # Rename the dimensions if they are different from "longitude" and "latitude"
     if xycoords != ("longitude", "latitude"):
         da = da.rename({xycoords[0]: "longitude", xycoords[1]: "latitude"})
+    # Rename the time coordinate to "time" if it is different
+    if timecoord != "time":
+        da = da.rename({timecoord: "time"})
     # Transpose the DataArray to ensure "latitude" and "longitude" are the first dimensions
-    return da.transpose("latitude", "longitude", ...)
+    return da.transpose("latitude", "longitude", "time", ...)
