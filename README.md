@@ -29,7 +29,7 @@ Since `aggfly` relies on several packages with version restrictions, we recommen
 1. Create your conda environment by running the following command from your terminal:
 
 ```
-conda create --name aggfly-dev python==3.12.2 pip
+conda create --name aggfly-dev python==3.12.2 pip ipykernel
 conda activate aggfly-dev
 ```
 
