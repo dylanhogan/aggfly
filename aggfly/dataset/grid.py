@@ -182,6 +182,7 @@ class Grid:
         self.index = np.indices(self.lon_array.flatten().shape).reshape(
             self.lon_array.shape
         )
+        self.cell_id = self.index.flatten()
 
     @lru_cache(maxsize=None)
     def mask(self, georegions, buffer=0, chunksize=100, compute=True):
@@ -285,28 +286,28 @@ class Grid:
         compute=True,
         intersect_cells=False,
     ):
-    """
-    Converts centroids to cells based on the provided georegions and other parameters.
+        """
+        Converts centroids to cells based on the provided georegions and other parameters.
 
-    Parameters:
-    -----------
-    georegions: GeoDataFrame
-        The geospatial regions to use for conversion.
-    buffer: int, optional
-        Buffer distance around the georegions. Default is 0.
-    chunksize: int, optional
-        Chunk size for Dask array operations. Default is 100.
-    datatype: str, optional
-        The type of data structure to return ("xarray"). Default is "xarray".
-    compute: bool, optional
-        Whether to compute the result immediately. Default is True.
-    intersect_cells: bool, optional
-        Whether to intersect cells. Default is False.
+        Parameters:
+        -----------
+        georegions: GeoDataFrame
+            The geospatial regions to use for conversion.
+        buffer: int, optional
+            Buffer distance around the georegions. Default is 0.
+        chunksize: int, optional
+            Chunk size for Dask array operations. Default is 100.
+        datatype: str, optional
+            The type of data structure to return ("xarray"). Default is "xarray".
+        compute: bool, optional
+            Whether to compute the result immediately. Default is True.
+        intersect_cells: bool, optional
+            Whether to intersect cells. Default is False.
 
-    Returns:
-    --------
-    The computed cells based on centroids.
-    """
+        Returns:
+        --------
+        The computed cells based on centroids.
+        """
         # Generate Dask array of geometries from georegions with the specified buffer
         pol = georegions.poly_array(buffer=buffer)
         print(pol)

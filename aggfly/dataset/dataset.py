@@ -17,7 +17,7 @@ from .grid_utils import *
 from ..regions import GeoRegions
 
 
-class Dataset:
+class Dataset():
     """
     A class used to represent a Dataset.
 
@@ -47,6 +47,7 @@ class Dataset:
         self,
         da: xr.DataArray,
         xycoords: tuple = ("longitude", "latitude"),
+        timecoord: str = "time",
         time_sel: str = None,
         lon_is_360: bool = True,
         preprocess: callable = None,
@@ -63,6 +64,8 @@ class Dataset:
             The data array to be processed.
         xycoords : tuple, optional
             The x and y coordinates (default is ("longitude", "latitude")).
+        timecoord : str, optional
+            The time coordinate (default is "time").
         time_sel : str, optional
             The time selection (default is None).
         lon_is_360 : bool, optional
@@ -79,7 +82,7 @@ class Dataset:
         # Set Dask configuration to not split large chunks during array slicing
         with dask.config.set(**{"array.slicing.split_large_chunks": False}):  
             # Clean dimensions and ensure proper coordinate names
-            da = clean_dims(da, xycoords)
+            da = clean_dims(da, xycoords, timecoord)
             # Sort the data array by time
             da = da.sortby("time")
             # If a time selection is provided, select the data for that time
@@ -468,6 +471,14 @@ class Dataset:
             # Return the updated copy
             return slf
 
+    def spline(self) -> Optional["Dataset"]:
+        # Construct design matrix for linear spline
+        design_matrix = lambda x: (x > 20) * (x-20)
+        arr = self.da.map_blocks(design_matrix)
+        slf = self.deepcopy()
+        slf.update(arr)
+        return (self, slf)
+    
     def interact(
         self, inter: Union["Dataset", xr.DataArray], update: bool = False
     ) -> Optional["Dataset"]:
@@ -504,7 +515,12 @@ class Dataset:
             slf.history.append("interacted")
             # Return the updated copy
             return slf
+    
+    def __repr__(self):
+        return self.da.__repr__()
 
+    def _repr_html_(self):
+        return self.da._repr_html_()
 
 # @numba.njit(fastmath=True, parallel=True)
 def _power(array, exp):
@@ -550,6 +566,7 @@ def dataset_from_path(
     path: Union[str, List[str]],
     var: str,
     xycoords: Tuple[str, str] = ("longitude", "latitude"),
+    timecoord: str = "time",
     time_sel: Optional[str] = None,
     georegions: Optional[GeoRegions] = None,
     lon_is_360: bool = True,
@@ -562,6 +579,7 @@ def dataset_from_path(
         "longitude": -1,
     },
     preprocess_at_load = False,
+    parallel = True,
     **kwargs,
 ) -> Dataset:
     """
@@ -575,6 +593,8 @@ def dataset_from_path(
         The variable to load.
     xycoords : tuple of str, optional
         The names of the x and y coordinates (default is ("longitude", "latitude")).
+    timecoord : str, optional
+        The name of the time coordinate (default is "time").
     time_sel : str, optional
         The time selection (default is None).
     georegions : GeoRegions, optional
@@ -604,7 +624,7 @@ def dataset_from_path(
         
                 # Load multiple files as a single dataset
                 array = xr.open_mfdataset(
-                    path, preprocess=preprocess, chunks=chunks, **kwargs
+                    path, preprocess=preprocess, chunks=chunks, parallel=parallel, **kwargs
                 )
                 
                 # array = xr.open_mfdataset(
@@ -631,6 +651,7 @@ def dataset_from_path(
     return Dataset(
         array,
         xycoords=xycoords,
+        timecoord=timecoord,
         time_sel=time_sel,
         lon_is_360=lon_is_360,
         preprocess=preprocess,
