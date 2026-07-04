@@ -101,6 +101,7 @@ def aggregate_time(
     dataset: Dataset,
     weights: GridWeights = None,
     aggregator_dict: Dict[str, Union[List[Tuple], TemporalAggregator]] = None,
+    engine: str = "dask",
     **kwargs,
 ) -> Dict[str, Dataset]:
     """
@@ -110,6 +111,7 @@ def aggregate_time(
         dataset (Dataset): The dataset to aggregate.
         weights (GridWeights, optional): The weights to use for aggregation. Defaults to None.
         aggregator_dict (Dict[str, Union[List[Tuple], TemporalAggregator]], optional): A dictionary of temporal aggregators to apply to the dataset. Defaults to None.
+        engine (str, optional): Temporal backend, "dask" (default) or "numba". Defaults to "dask".
         **kwargs: Additional keyword arguments to use if `aggregator_dict` is not provided.
 
     Returns:
@@ -131,7 +133,7 @@ def aggregate_time(
             if key2 == "aggregate":
                 # If 'aggregate' key is found, execute the temporal aggregator
                 if not isinstance(value2, TemporalAggregator):
-                    value2 = TemporalAggregator(**value2)
+                    value2 = TemporalAggregator(**value2, engine=engine)
                 data = [value2.execute(x, weights) for x in data]
 
                 # Handle multi_dd case for multiple data dimensions
@@ -203,6 +205,7 @@ def aggregate_dataset(
     processes = True,
     memory_limit=None,
     cluster_args = {},
+    engine: str = "dask",
     **kwargs,
 ) -> pd.DataFrame:
     """
@@ -236,7 +239,7 @@ def aggregate_dataset(
 
     # Aggregate over time if aggregator_dict is provided
     if aggregator_dict is not None:
-        dataset_dict = aggregate_time(dataset, weights, aggregator_dict)
+        dataset_dict = aggregate_time(dataset, weights, aggregator_dict, engine=engine)
     # If no dataset_dict is provided, create a default one
     elif dataset_dict is None:
         dataset_dict = {"variable": dataset}

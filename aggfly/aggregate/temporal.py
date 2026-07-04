@@ -9,6 +9,7 @@ import warnings
 import numpy as np
 import dask.array as da
 from .aggregate_utils import *
+from .nb_kernels import numba_resample, NUMBA_CALCS
 from ..dataset import Dataset, array_lon_to_360
 from ..weights import GridWeights
 from typing import List, Union
@@ -58,6 +59,7 @@ class TemporalAggregator:
         groupby: str,
         ddargs: List[Union[int, float]] = None,
         pre_compute: bool = False,
+        engine: str = "dask",
     ):
         self.calc = calc
         self.groupby = translate_groupby(groupby)
@@ -68,6 +70,7 @@ class TemporalAggregator:
         # Assign the appropriate function based on the calculation type
         self.func = self.assign_func()
         self.pre_compute = pre_compute
+        self.engine = engine
 
         # if self.calc == "sine_dd":
         #     warnings.warn(
@@ -94,6 +97,8 @@ class TemporalAggregator:
         # Check if the calculation type is "mean" and assign np.mean function
         if self.calc == "mean":
             f = np.mean
+        if self.calc == "nanmean":
+            f = np.nanmean
         # Check if the calculation type is "sum" and assign np.sum function
         if self.calc == "sum":
             f = np.sum
@@ -190,10 +195,9 @@ class TemporalAggregator:
         #         weights.nonzero_weight_mask = array_lon_to_360(weights.nonzero_weight_mask)
         #     ds = ds.where(weights.nonzero_weight_mask)
 
-        # Handle multi_dd case by expanding dimensions if necessary
+        # Handle multi_dd case: prepare a dataset copy per ddarg (the "dd" axis is
+        # added later, only on the dask reduce path — the numba path handles it internally)
         if self.multi_dd:
-            # Expand dimensions for multi_dd
-            ds = ds.expand_dims("dd", axis=-1)
             if not update:
                 # Create a list of deep copies of the dataset for each ddarg
                 dataset_list = [deepcopy(dataset) for x in np.arange(len(self.ddargs))]
@@ -209,8 +213,16 @@ class TemporalAggregator:
             )
             ds = ds.compute()
 
-        with dask.config.set(**{"array.slicing.split_large_chunks": False}):
-            out = ds.resample(time=self.groupby).reduce(self.func, **self.kwargs)
+        use_numba = self.engine == "numba" and self.calc in NUMBA_CALCS
+        if use_numba:
+            out = numba_resample(
+                ds, self.groupby, self.calc, self.ddargs, self.multi_dd
+            )
+        else:
+            if self.multi_dd:
+                ds = ds.expand_dims("dd", axis=-1)
+            with dask.config.set(**{"array.slicing.split_large_chunks": False}):
+                out = ds.resample(time=self.groupby).reduce(self.func, **self.kwargs)
 
         # Handle multi_dd output by converting to dataset and splitting by variables
         if self.multi_dd:

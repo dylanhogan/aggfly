@@ -280,16 +280,63 @@ def test_aggregate(dataset_360, weights):
     It then checks if the aggregated values match the expected results.
     """
     df = af.aggregate_dataset(
-        dataset=dataset_360, 
+        dataset=dataset_360,
         weights=weights,
         tavg = [
                 ('aggregate', {'calc':'mean', 'groupby':'date'}), # Aggregate by mean per date
                 ('transform', {'transform':'power', 'exp':np.arange(1,3)}), # Transform by raising to power of 1 and 2
                 ('aggregate', {'calc':'sum', 'groupby':'month'}), # Aggregate by summing per month
-        ]    
+        ]
     )
-    
+
     # Check if the aggregated values are as expected
-    assert np.allclose(df[['tavg_1', 'tavg_2']].values, 
+    assert np.allclose(df[['tavg_1', 'tavg_2']].values,
+        np.array([[  46.906441, 1202.304441]])
+    )
+
+
+def test_aggregate_time_numba(dataset_360, weights):
+    # The numba engine must be bit-equivalent to the dask path (and the
+    # hardcoded expectations) across mean/sum/dd/bins/multi-dd/power.
+    adict = af.aggregate_time(
+        dataset=dataset_360,
+        weights=weights,
+        engine="numba",
+            bins= [
+                ('aggregate', {'calc':'mean', 'groupby':'date'}),
+                ('aggregate', {'calc':'bins', 'groupby':'month', 'ddargs':[[-99,20,0],[20,99,0]]})
+            ],
+            cooling_dday = [
+                ('aggregate', {'calc':'dd', 'groupby':'date', 'ddargs':[20,99,0]}),
+                ('aggregate', {'calc':'sum', 'groupby':'month'})
+            ],
+            tavg = [
+                ('aggregate', {'calc':'mean', 'groupby':'date'}),
+                ('transform', {'transform':'power', 'exp':np.arange(1,3)}),
+                ('aggregate', {'calc':'sum', 'groupby':'month'})
+            ]
+        )
+    df = xr.combine_by_coords([ adict[x].da.rename(x) for x in adict.keys()]).to_dataframe()
+    assert np.allclose(df.values,
+        np.array([[   0.      ,    2.      ,   44.945648,   62.472824, 1956.361671],
+                [   1.      ,    1.      ,   25.910298,   39.60287 ,  801.80304 ],
+                [   1.      ,    1.      ,    9.12584 ,   35.789426,  670.521066],
+                [   1.      ,    1.      ,   14.932308,   37.648473,  858.069229]])
+    )
+
+
+def test_aggregate_numba(dataset_360, weights):
+    df = af.aggregate_dataset(
+        dataset=dataset_360,
+        weights=weights,
+        engine="numba",
+        tavg = [
+                ('aggregate', {'calc':'mean', 'groupby':'date'}),
+                ('transform', {'transform':'power', 'exp':np.arange(1,3)}),
+                ('aggregate', {'calc':'sum', 'groupby':'month'}),
+        ]
+    )
+
+    assert np.allclose(df[['tavg_1', 'tavg_2']].values,
         np.array([[  46.906441, 1202.304441]])
     )
