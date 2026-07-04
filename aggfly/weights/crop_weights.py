@@ -209,6 +209,9 @@ def open_crop_raster(path, crop, preprocess=None, **kwargs):
 
     Returns
     -------
+    xarray.DataArray
+        The opened crop raster.
+    """
     # Separate file path from file extension
     file, ex = os.path.splitext(path)
 

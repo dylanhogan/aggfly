@@ -312,7 +312,7 @@ def _sine_dd(frame, axis, ddargs):
 
 
 def _sine_cdd(frame, axis, threshold):
-    nan_cells = da.where(np.isnan(frame[:, :, 0]), np.nan, 1)
+    nan_cells = da.where(np.isnan(frame).any(axis=axis), np.nan, 1)
     output = np.zeros_like(frame[:, :, 0])
     tmax = frame.max(axis=axis)
     tmin = frame.min(axis=axis)
@@ -336,7 +336,7 @@ def _sine_cdd(frame, axis, threshold):
 
 
 def _sine_hdd(frame, axis, threshold):
-    nan_cells = da.where(np.isnan(frame[:, :, 0]), np.nan, 1)
+    nan_cells = da.where(np.isnan(frame).any(axis=axis), np.nan, 1)
     output = np.zeros_like(frame[:, :, 0])
     tmax = frame.max(axis=axis)
     tmin = frame.min(axis=axis)
@@ -396,9 +396,10 @@ def _bins(frame, axis, ddargs):
         The result of the 'bins' calculation.
     """
     # Calculate the 'bins' value by checking the conditions and summing the result
-    return ((frame > ddargs[0]) # Check if frame values are greater than the first ddarg
-            * (frame < ddargs[1])) # Check if frame values are less than the second ddarg 
-            .sum(axis=axis) # Sum the result along the specified axis
+    return (
+        (frame > ddargs[0])  # Check if frame values are greater than the first ddarg
+        * (frame < ddargs[1])  # Check if frame values are less than the second ddarg
+    ).sum(axis=axis)  # Sum the result along the specified axis
 
 
 def _multi_bins(frame, axis, ddargs):

@@ -93,7 +93,7 @@ def georegion():
 
 @pytest.fixture(name='georegion')
 def georegion_fixture():
-     """
+    """
     Fixture for the georegion function.
     
     Returns:
