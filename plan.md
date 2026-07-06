@@ -129,3 +129,95 @@ yield NaN. This is the case the current code gets wrong.
 **Risk/notes:** this changes existing outputs on NaN-containing (ocean/masked) cells
 for `sine_dd` only — flag it as a bugfix in the changelog since it alters numbers for
 affected cells. Pure-land datasets are unaffected.
+
+---
+
+## 4. NetCDF read path — investigation ✅ MEASURED, decision pinned
+
+**Context:** with the numba engine making temporal compute cheap, the read is now the
+dominant cost for raw-NetCDF workloads. Raw ERA5 lives at
+`/shared/vol1/ERA5/raw/ERA5_{year}.nc` (85 files, ~21 GB each, 1.7 TB). On-disk HDF5
+layout is pessimal for a time reduction: chunks `(138, 23, 45)` — bricked in time AND
+both spatial dims — with zlib1+shuffle, dims `valid_time`(8784)×`latitude`(721)×
+`longitude`(1440), float32, vars `t2m`/`tp`.
+
+**Benchmarks (`benchmarks/profile_netcdf.py` = configs A/B/C cold; `profile_netcdf_zarr.py`
+= A/C/Z1/K1/K2 warm), 120×120 × full-year window = 482 MB decompressed:**
+- Cold cache exposes the HDF5 global read lock: A) native brick + threads = 12.0s / **35%
+  CPU** / 40 MB/s (cores idle on the serialized lock, NOT disk-bound); B) native brick +
+  **processes** = 4.0s / 119 MB/s (3×); C) rechunk time=-1 + threads = 3.0s / 158 MB/s (4×).
+- Warm cache (can't drop caches w/o root → lock penalty understated): A = 2.78s / 140% /
+  173 MB/s; **Z1) `to_zarr` rechunk time=-1, blosc = 1.07s / 253% / 450 MB/s, store 0.53×
+  the decompressed size** (blosc beats zlib1+shuffle) — 2.6× A, one-time window write 2.7s;
+  K1) kerchunk ref, native bricks = 2.57s / 187 MB/s (≈A warm; lock removal shows more
+  cold); K2) kerchunk ref + rechunk = 1.85s / 261 MB/s, **zero data copy**.
+- kerchunk `SingleHdf5ToZarr` scans the whole 21 GB file in **0.5s → 131 k chunk refs**
+  (metadata only). **Correctness:** kerchunk daily-mean is **bit-identical** to netcdf;
+  zarr differs by 6e-5 K = float32 reduction-order noise from rechunking only (raw stored
+  values bit-identical, lossless — ERA5 t2m is true float32, no scale/offset packing).
+
+**Decision (pinned until deps are modernized — see item 5):** for aggfly's repeated-
+processing pattern, **convert each year to Zarr once** (rechunk time-contiguous, uniform
+spatial tiles, blosc) — the clear ceiling. Keep **kerchunk** as the zero-duplication
+fallback when a second copy of 1.7 TB is unaffordable. Deferred deliverable: a first-class
+`af` helper "convert ERA5 year → Zarr". Two gotchas the helper must handle: (1) `to_zarr`
+rejects the uneven dask chunks an `isel` window yields — `.chunk()` to uniform sizes first;
+(2) kerchunk-loaded coords carry an un-copyable `_json.Scanner` in `.encoding` that crashes
+`resample` — strip `da.encoding`/coord encodings after opening.
+
+**Why pinned:** kerchunk needs `h5py` and a version compatible with aggfly's `zarr<3` pin
+(`kerchunk==0.2.7`; ≥0.2.10 demands zarr≥3). Rather than special-case old kerchunk, we
+first modernize the dependency stack (item 5), then re-evaluate to_zarr vs kerchunk vs
+`virtualizarr` (the actively-maintained successor to kerchunk's reference approach) on
+current zarr-v3 / xarray, and only then build the conversion helper.
+
+---
+
+## 5. Dependency + Python version modernization (NEXT)
+
+**Goal:** move aggfly off the narrow `python >=3.11.6,<3.12.3` pin and the frozen
+dask/dask-geopandas/zarr/numpy versions onto current stable releases, so we can (a) use
+zarr v3, modern xarray, and `virtualizarr`/current kerchunk for the read-path work, and
+(b) stop being blocked by the 3.12.3 `dask-geopandas` breakage.
+
+**Why now:** the read-path decision (item 4) is gated on the zarr version; the whole stack
+is >1 year stale and pinned around a since-fixed `dask-geopandas` bug. Doing this first
+unblocks item 4's helper and de-risks future work.
+
+**Constraints to respect:**
+- The Python pin is deliberately narrow because Python 3.12.3+ broke `dask-geopandas`
+  (dask dataframe internals). `dask` and `dask-geopandas` must move **together** to a jointly
+  compatible pair — do not bump either alone. Verify a `dask-geopandas` release supports the
+  target `dask` + Python before widening the pin.
+- numpy is pinned `<2.0.0` today; numba `<0.60` needs numpy `<1.27`. numba ≥0.60 supports
+  numpy 2.x — the numba engine (`nb_kernels.py`) must be re-benchmarked after any numpy-2
+  bump (kernels are the hot path).
+- zarr v2→v3 is a breaking API change (store/consolidated-metadata/codecs) — audit every
+  `zarr`/`to_zarr`/`open_zarr` call and the `ProjectCache` store usage.
+
+**Approach (staged, each stage green before the next):**
+1. **Baseline & inventory.** Record current resolved versions (`poetry show`), run the full
+   `pytest` suite green as the reference, and grep the codebase for direct API touchpoints:
+   `xarray`, `dask`, `dask_geopandas`, `zarr`, `numpy`, `geopandas`, `rioxarray`, `numba`.
+2. **Find the joint solution.** Determine the newest `dask` + `dask-geopandas` pair that
+   support a common Python (target 3.12/3.13), and whether they still require a Python ceiling.
+   This is the binding constraint — resolve it before touching anything else.
+3. **Widen Python + bump core stack in a throwaway env.** In a scratch venv, bump
+   python, dask(+distributed), dask-geopandas, xarray, zarr(→v3), numpy(→2.x), numba(≥0.60),
+   geopandas/rioxarray/pyproj. Resolve with poetry; capture the new lock.
+4. **Fix breakage by subsystem.** zarr v3 API in `ProjectCache` + any `to_zarr`/`open_zarr`;
+   numpy-2 dtype/`np.float_`-style removals; xarray resample/`.reduce` signature drift in
+   `temporal.py`; dask-geopandas dataframe API in `spatial.py`. Re-run tests per subsystem.
+5. **Re-benchmark the hot paths** on the new stack: `benchmarks/bench_engine.py` (numba vs
+   dask, numpy-2) and the NUMBA_MAX_CELLS threshold; then re-run item 4's
+   `profile_netcdf_zarr.py` with current kerchunk/virtualizarr on zarr-v3.
+6. **Update pins & docs.** Rewrite the `pyproject.toml` version comments (they document the
+   old 3.12.3 rationale) and the CLAUDE.md "Python version constraint" section to the new reality.
+
+**Validation:** full `pytest` green on the new stack (the fixtures + `np.allclose` numeric
+assertions are the correctness net); numba engine still bit-equivalent to dask; benchmarks
+re-run and recorded. Land as its own branch/PR separate from feature work.
+
+**Risk/notes:** highest-risk bumps are zarr v2→v3 and numpy 1→2; if `dask-geopandas` has no
+release compatible with a newer Python, that caps the whole effort — document the blocker and
+bump only what is safe under the existing Python. Keep the old `poetry.lock` recoverable.
