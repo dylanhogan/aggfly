@@ -39,6 +39,7 @@ class GridWeights:
         project_dir: Optional[str] = None,
         simplify: Optional[Union[float, int]] = None,
         default_to_area_weights: bool = True,
+        cosine_area: bool = True,
         verbose: bool = True,
     ):
         """
@@ -60,6 +61,9 @@ class GridWeights:
             The simplification factor to use (default is None).
         default_to_area_weights : bool, optional
             Whether to default to area weights (default is True).
+        cosine_area : bool, optional
+            Whether to correct area weights for cell-area distortion by latitude
+            (multiply by cos(latitude)). Default is True.
         verbose : bool, optional
             Whether to print verbose output (default is True).
         weights : GeoDataFrame
@@ -77,7 +81,8 @@ class GridWeights:
         self.weights = None
         self.nonzero_weight_coords = None
         self.nonzero_weight_mask = None
-        
+        self.cosine_area = cosine_area
+
         # Initialize the cache
         self.cache = initialize_cache(self)
 
@@ -349,6 +354,13 @@ class GridWeights:
         cell_df = self.get_cell_id_dataframe()
         area_weights = area_weights.merge(cell_df, how="left", on="cell_id")
 
+        if self.cosine_area:
+            # Correct for cell-area distortion by latitude: a grid cell of fixed
+            # degree extent covers less surface area toward the poles (~cos(lat)).
+            # No per-region renormalization is needed here — the spatial step
+            # divides by each region's summed weight.
+            area_weights["area_weight"] *= np.cos(np.radians(area_weights.latitude))
+
         return area_weights
 
     def get_weighted_area_weights(self) -> pd.DataFrame:
@@ -421,6 +433,7 @@ class GridWeights:
             },
             "simplify": self.simplify,
             "default_to_area_weights": self.default_to_area_weights,
+            "cosine_area": self.cosine_area,
         }
 
         # Add raster weights to the dictionary if available

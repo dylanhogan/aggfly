@@ -202,10 +202,10 @@ def test_weights(weights):
     assert isinstance(weights.raster_weights, af.SecondaryWeights)
     # Print weights
     print(weights.weights)
-    # Check area weights
+    # Check area weights (cosine-of-latitude corrected: cells here are at lat +-45)
     assert np.allclose(
         weights.weights.area_weight,
-        np.array([0.87770301, 0.84596667, 0.42553152, 0.94280892])
+        np.array([0.62062975, 0.59818877, 0.30089622, 0.66666658])
     )
     # Check raster weights
     assert np.allclose(
@@ -215,7 +215,7 @@ def test_weights(weights):
     # Check final weights
     assert np.allclose(
         weights.weights.weight,
-        np.array([0.24283805, 0.28013403, 0.09910194, 0.15018472])
+        np.array([0.17171243, 0.19808467, 0.07007565, 0.10619663])
     )
 
 def test_aggregate_time(dataset_360, weights):
