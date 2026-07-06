@@ -101,7 +101,7 @@ def aggregate_time(
     dataset: Dataset,
     weights: GridWeights = None,
     aggregator_dict: Dict[str, Union[List[Tuple], TemporalAggregator]] = None,
-    engine: str = "dask",
+    engine: str = "auto",
     **kwargs,
 ) -> Dict[str, Dataset]:
     """
@@ -111,7 +111,9 @@ def aggregate_time(
         dataset (Dataset): The dataset to aggregate.
         weights (GridWeights, optional): The weights to use for aggregation. Defaults to None.
         aggregator_dict (Dict[str, Union[List[Tuple], TemporalAggregator]], optional): A dictionary of temporal aggregators to apply to the dataset. Defaults to None.
-        engine (str, optional): Temporal backend, "dask" (default) or "numba". Defaults to "dask".
+        engine (str, optional): Temporal backend — "auto" (default), "dask", or "numba".
+            "auto" uses the numba kernels on small spatial chunks (faster, lower memory)
+            and dask on large blocks; "dask"/"numba" force one backend. Defaults to "auto".
         **kwargs: Additional keyword arguments to use if `aggregator_dict` is not provided.
 
     Returns:
@@ -205,7 +207,7 @@ def aggregate_dataset(
     processes = True,
     memory_limit=None,
     cluster_args = {},
-    engine: str = "dask",
+    engine: str = "auto",
     **kwargs,
 ) -> pd.DataFrame:
     """

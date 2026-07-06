@@ -9,7 +9,13 @@ thread pool. These three items build on that result.
 
 ---
 
-## 1. Auto-select the temporal engine from chunk size
+## 1. Auto-select the temporal engine from chunk size — ✅ DONE
+
+Implemented as `resolve_engine()` / `max_spatial_block_cells()` in `nb_kernels.py`
+with the tunable `NUMBA_MAX_CELLS_PER_BLOCK` (default 150*150). `engine` now defaults
+to `"auto"` across `TemporalAggregator`/`aggregate_time`/`aggregate_dataset` and is
+resolved per `execute()` against that step's chunking; `"dask"`/`"numba"` still force
+a backend. Unit tests: `test_resolve_engine`, `test_max_spatial_block_cells`.
 
 **Goal:** users get the fast path without having to know the "numba + small chunks,
 dask + big chunks" rule. Pick the engine per spatial-chunk size.

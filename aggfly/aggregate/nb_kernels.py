@@ -33,6 +33,46 @@ from numba import njit, prange
 _STAT_CODE = {"mean": 0, "sum": 1, "min": 2, "max": 3, "nanmean": 4}
 NUMBA_CALCS = frozenset({"mean", "nanmean", "sum", "min", "max", "dd", "bins", "sine_dd"})
 
+# Cells per spatial block at/below which the numba engine wins under engine="auto".
+# The numba kernel dominates on many small spatial blocks (the GIL-bound, low-memory
+# regime); the dask path's vectorized numpy wins on few large blocks (already
+# compute-bound, and per-block numba threads oversubscribe the dask pool). On real
+# ERA5, numba was ~12x faster at 50x50 (2.5k cells) and ~0.7x at 250x250 (62.5k);
+# 150x150 (22.5k) sits near the crossover. Tunable.
+NUMBA_MAX_CELLS_PER_BLOCK = 150 * 150
+
+
+def max_spatial_block_cells(da: xr.DataArray) -> int:
+    """Largest number of cells in a single spatial (non-time) dask block.
+
+    For a non-dask-backed array (no chunks), the whole spatial extent is one block.
+    """
+    spatial = [d for d in da.dims if d != "time"]
+    if da.chunks is None:
+        return int(np.prod([da.sizes[d] for d in spatial])) if spatial else 1
+    biggest = 1
+    for d in spatial:
+        biggest *= max(da.chunks[da.get_axis_num(d)])
+    return int(biggest)
+
+
+def resolve_engine(engine: str, da: xr.DataArray, calc: str) -> str:
+    """Resolve engine=("dask"|"numba"|"auto") to a concrete "dask" or "numba".
+
+    - Calcs the numba backend can't do always resolve to "dask".
+    - "auto" picks "numba" only for small spatial blocks (see NUMBA_MAX_CELLS_PER_BLOCK).
+    Pure function (no compute) so it is cheap and unit-testable.
+    """
+    if calc not in NUMBA_CALCS:
+        return "dask"
+    if engine == "numba":
+        return "numba"
+    if engine == "dask":
+        return "dask"
+    if engine == "auto":
+        return "numba" if max_spatial_block_cells(da) <= NUMBA_MAX_CELLS_PER_BLOCK else "dask"
+    raise ValueError(f"engine must be 'dask', 'numba', or 'auto', got {engine!r}")
+
 
 # --------------------------------------------------------------------------- #
 # group construction — mirror xarray's resample bins

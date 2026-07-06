@@ -340,3 +340,46 @@ def test_aggregate_numba(dataset_360, weights):
     assert np.allclose(df[['tavg_1', 'tavg_2']].values,
         np.array([[  46.906441, 1202.304441]])
     )
+
+
+def _cube(nlat, nlon, latchunk, lonchunk, dask=True):
+    """A small time x lat x lon DataArray, optionally dask-chunked in space."""
+    t = pd.date_range("2016-01-01", periods=24, freq="h")
+    da = xr.DataArray(
+        np.ones((24, nlat, nlon)),
+        dims=["time", "latitude", "longitude"],
+        coords={"time": t, "latitude": np.arange(nlat), "longitude": np.arange(nlon)},
+    )
+    if dask:
+        da = da.chunk({"time": -1, "latitude": latchunk, "longitude": lonchunk})
+    return da
+
+
+def test_max_spatial_block_cells():
+    from aggfly.aggregate.nb_kernels import max_spatial_block_cells
+    # dask-chunked: largest spatial block = latchunk * lonchunk
+    assert max_spatial_block_cells(_cube(500, 500, 50, 50)) == 2500
+    assert max_spatial_block_cells(_cube(500, 500, 250, 250)) == 62500
+    # single block (-1 chunks) = full spatial extent
+    assert max_spatial_block_cells(_cube(361, 361, -1, -1)) == 361 * 361
+    # non-dask array = whole spatial extent
+    assert max_spatial_block_cells(_cube(60, 60, 0, 0, dask=False)) == 3600
+
+
+def test_resolve_engine():
+    from aggfly.aggregate.nb_kernels import resolve_engine, NUMBA_MAX_CELLS_PER_BLOCK
+    small = _cube(500, 500, 50, 50)     # 2500 cells/block -> below threshold
+    large = _cube(500, 500, 250, 250)   # 62500 cells/block -> above threshold
+    # auto picks by chunk size
+    assert resolve_engine("auto", small, "mean") == "numba"
+    assert resolve_engine("auto", large, "mean") == "dask"
+    # explicit choices are honored for supported calcs
+    assert resolve_engine("dask", small, "mean") == "dask"
+    assert resolve_engine("numba", large, "mean") == "numba"
+    # calcs the numba backend can't do always fall back to dask
+    assert resolve_engine("auto", small, "not_a_numba_calc") == "dask"
+    assert resolve_engine("numba", small, "not_a_numba_calc") == "dask"
+    # invalid engine raises
+    import pytest
+    with pytest.raises(ValueError):
+        resolve_engine("bogus", small, "mean")
