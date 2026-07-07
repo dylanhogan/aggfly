@@ -233,7 +233,13 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
      cell centroids (`mask()`) on dask-geopandas — it already works on the modern stack.
      Removed now-dead `import dask`/`import dask.array`. **With this fix the whole test suite
      passes on the modern stack (9/9)** — the temporal/numba paths were only blocked behind
-     the weights fixture.
+     the weights fixture. **Perf validated** (`benchmarks/bench_weights.py`,
+     `benchmarks/bench_groupby.py`, 50 states × 0.25°/0.1° CONUS grid, same stack): dropping
+     dask is a net win at realistic scale — end-to-end `calculate_weights` ~10-13% faster,
+     memory equal (±2%), identical output, less variance. The groupby has a crossover (dask
+     wins beyond ~2-5M weight rows) but realistic grid-resolution weight frames are ~10k-500k
+     rows where pandas is 3-10× faster; a size-thresholded switch is the mitigation if ever
+     needed.
    - **Regions module — TODO.** `georegions.py` still uses `dask_geopandas.from_geopandas(...)
      .buffer(...)` and `np.in1d` (→`np.isin`) at :187,220; `shp_utils.py:32` `np.in1d`; and the
      test fixture's `unary_union`→`union_all()`. None currently error (np.in1d still warns-only
