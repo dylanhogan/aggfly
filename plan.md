@@ -184,11 +184,18 @@ zarr v3, modern xarray, and `virtualizarr`/current kerchunk for the read-path wo
 is >1 year stale and pinned around a since-fixed `dask-geopandas` bug. Doing this first
 unblocks item 4's helper and de-risks future work.
 
-**Constraints to respect:**
-- The Python pin is deliberately narrow because Python 3.12.3+ broke `dask-geopandas`
-  (dask dataframe internals). `dask` and `dask-geopandas` must move **together** to a jointly
-  compatible pair — do not bump either alone. Verify a `dask-geopandas` release supports the
-  target `dask` + Python before widening the pin.
+**Binding constraint — RESOLVED UPSTREAM (checked 2026-07-07).** The Python pin was narrow
+because Python 3.12.3+ broke `dask-geopandas` (dask query-planning / dask-expr dataframe
+internals). That is now fixed upstream: `dask-geopandas` is actively maintained (NOT
+deprecated), latest **0.5.0 (Jun 2025)**, and **v0.4.3 (Jan 2025) requires `dask>=2025.1.0`
+and `python>=3.10`** — i.e. it has been ported to modern dask and imposes **no Python
+ceiling**. So the jointly-compatible pair is effectively already chosen: `dask-geopandas
+0.5.0` + `dask>=2025.1.0` + `python>=3.10` (target 3.12/3.13). This de-risks the whole
+effort — the migration cost moves from "unsolvable version conflict" to "audit aggfly's own
+`spatial.py` dask-dataframe usage against modern dask's API" (a code fix, not a blocker).
+Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` move **together**.
+
+**Other constraints to respect:**
 - numpy is pinned `<2.0.0` today; numba `<0.60` needs numpy `<1.27`. numba ≥0.60 supports
   numpy 2.x — the numba engine (`nb_kernels.py`) must be re-benchmarked after any numpy-2
   bump (kernels are the hot path).
@@ -199,9 +206,11 @@ unblocks item 4's helper and de-risks future work.
 1. **Baseline & inventory.** Record current resolved versions (`poetry show`), run the full
    `pytest` suite green as the reference, and grep the codebase for direct API touchpoints:
    `xarray`, `dask`, `dask_geopandas`, `zarr`, `numpy`, `geopandas`, `rioxarray`, `numba`.
-2. **Find the joint solution.** Determine the newest `dask` + `dask-geopandas` pair that
-   support a common Python (target 3.12/3.13), and whether they still require a Python ceiling.
-   This is the binding constraint — resolve it before touching anything else.
+2. **Confirm the joint solution (already resolved upstream — just verify).** The
+   `dask-geopandas 0.5.0` + `dask>=2025.1.0` + `python>=3.10` combo removes the old blocker;
+   confirm the exact versions poetry resolves and that the pair moves together. The real work
+   this exposes is the `spatial.py` audit against modern dask's dataframe API (see step 4),
+   not a version hunt.
 3. **Widen Python + bump core stack in a throwaway env.** In a scratch venv, bump
    python, dask(+distributed), dask-geopandas, xarray, zarr(→v3), numpy(→2.x), numba(≥0.60),
    geopandas/rioxarray/pyproj. Resolve with poetry; capture the new lock.
@@ -218,6 +227,7 @@ unblocks item 4's helper and de-risks future work.
 assertions are the correctness net); numba engine still bit-equivalent to dask; benchmarks
 re-run and recorded. Land as its own branch/PR separate from feature work.
 
-**Risk/notes:** highest-risk bumps are zarr v2→v3 and numpy 1→2; if `dask-geopandas` has no
-release compatible with a newer Python, that caps the whole effort — document the blocker and
-bump only what is safe under the existing Python. Keep the old `poetry.lock` recoverable.
+**Risk/notes:** with the dask-geopandas/Python blocker resolved upstream, the highest-risk
+bumps are now **zarr v2→v3** and **numpy 1→2**, plus adapting `spatial.py` to modern dask's
+dataframe API (the surface `dask-geopandas` 0.5.0 rides on). Keep the old `poetry.lock`
+recoverable in case a transitive dep still forces a compromise.
