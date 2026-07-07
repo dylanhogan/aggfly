@@ -342,6 +342,108 @@ def test_aggregate_numba(dataset_360, weights):
     )
 
 
+from types import SimpleNamespace
+from aggfly.aggregate.spatial import SpatialAggregator
+
+
+class _DShim:
+    """Minimal stand-in for a Dataset that SpatialAggregator can consume."""
+    def __init__(self, da):
+        self.da = da
+        self.lon_is_360 = False
+    def rescale_longitude(self):
+        return self
+
+
+def _wavg_oracle(vals, time, grid_cell_ids, wdf, names):
+    """Independent weighted-average reference (pure loops) for parity checks.
+
+    vals: dict name -> (n_cells, n_time) in grid_cell_ids order. A cell/time is used
+    only if every name is non-NaN there; a region/time with no valid weight is dropped.
+    """
+    cellpos = {int(c): i for i, c in enumerate(grid_cell_ids)}
+    rows = []
+    for r in np.sort(wdf["index_right"].unique()):
+        sub = wdf[wdf["index_right"] == r]
+        cidx = sub["cell_id"].map(cellpos).to_numpy()
+        wv = sub["weight"].to_numpy(dtype=float)
+        for ti in range(len(time)):
+            valid = np.ones(len(cidx), bool)
+            for nm in names:
+                valid &= ~np.isnan(vals[nm][cidx, ti])
+            den = wv[valid].sum()
+            if den == 0:
+                continue
+            row = {"region_id": r, "time": time[ti]}
+            for nm in names:
+                row[nm] = (wv[valid] * vals[nm][cidx, ti][valid]).sum() / den
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _run_spatial(da, wdf, names, time_chunk=None):
+    """Drive the real SpatialAggregator over a 2x2-cell grid via lightweight shims."""
+    if time_chunk is not None:
+        da = da.chunk({"time": time_chunk})
+    grid = SimpleNamespace(cell_id=np.array([0, 1, 2, 3]))
+    weights = SimpleNamespace(grid=grid, weights=wdf)
+    dlist = [_DShim(da.rename(nm)) for nm in names] if len(names) > 1 else [_DShim(da)]
+    return SpatialAggregator(dlist, weights, names=names).compute()
+
+
+def test_spatial_matmul_multiregion_nan():
+    """Two regions sharing cells with fractional weights + per-timestep NaNs:
+    the sparse-matmul aggregator must match an independent weighted-average oracle,
+    including across multiple lazy time chunks."""
+    lat = np.array([0.0, 1.0]); lon = np.array([0.0, 1.0])
+    time = pd.date_range("2000-07-01", periods=3, freq="D")
+    vals = np.random.default_rng(7).normal(20, 5, (3, 2, 2))
+    vals[1, 0, 0] = np.nan   # cell 0 NaN at t1
+    vals[2, 1, 1] = np.nan   # cell 3 NaN at t2
+    da = xr.DataArray(vals, dims=["time", "latitude", "longitude"],
+                      coords={"time": time, "latitude": lat, "longitude": lon})
+    wdf = pd.DataFrame({
+        "cell_id":     [0, 1, 2, 1, 2, 3],
+        "index_right": [0, 0, 0, 1, 1, 1],
+        "weight":      [0.5, 0.3, 0.2, 0.4, 0.4, 0.2],
+    })
+    names = ["v"]
+    vals_flat = {"v": vals.reshape(3, 4).T}  # (n_cells, n_time), C-order == cell_id order
+    oracle = _wavg_oracle(vals_flat, time.values, [0, 1, 2, 3], wdf, names)
+
+    got = _run_spatial(da, wdf, names, time_chunk=1)  # 3 time chunks -> exercises map_blocks
+    got = got.sort_values(["region_id", "time"]).reset_index(drop=True)
+    oracle = oracle.sort_values(["region_id", "time"]).reset_index(drop=True)
+    assert got.shape == oracle.shape
+    assert (got[["region_id"]].values == oracle[["region_id"]].values).all()
+    assert np.allclose(got["v"].values, oracle["v"].values, equal_nan=True)
+
+
+def test_spatial_matmul_dropna_empty_group():
+    """A region whose cells are all NaN at a timestep is dropped (den == 0),
+    row-for-row like the oracle."""
+    lat = np.array([0.0, 1.0]); lon = np.array([0.0, 1.0])
+    time = pd.date_range("2000-07-01", periods=2, freq="D")
+    vals = np.random.default_rng(3).normal(20, 5, (2, 2, 2))
+    vals[0, 0, 0] = vals[0, 0, 1] = vals[0, 1, 0] = np.nan  # region 0 cells all NaN at t0
+    da = xr.DataArray(vals, dims=["time", "latitude", "longitude"],
+                      coords={"time": time, "latitude": lat, "longitude": lon})
+    wdf = pd.DataFrame({
+        "cell_id":     [0, 1, 2, 1, 2, 3],
+        "index_right": [0, 0, 0, 1, 1, 1],
+        "weight":      [0.5, 0.3, 0.2, 0.4, 0.4, 0.2],
+    })
+    names = ["v"]
+    vals_flat = {"v": vals.reshape(2, 4).T}
+    oracle = _wavg_oracle(vals_flat, time.values, [0, 1, 2, 3], wdf, names)
+
+    got = _run_spatial(da, wdf, names).sort_values(["region_id", "time"]).reset_index(drop=True)
+    oracle = oracle.sort_values(["region_id", "time"]).reset_index(drop=True)
+    assert got.shape == oracle.shape                       # dropped group absent in both
+    assert (got[["region_id", "time"]].values == oracle[["region_id", "time"]].values).all()
+    assert np.allclose(got["v"].values, oracle["v"].values, equal_nan=True)
+
+
 def _cube(nlat, nlon, latchunk, lonchunk, dask=True):
     """A small time x lat x lon DataArray, optionally dask-chunked in space."""
     t = pd.date_range("2016-01-01", periods=24, freq="h")

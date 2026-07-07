@@ -221,7 +221,11 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
    geopandas/rioxarray/pyproj. Resolve with poetry; capture the new lock.
 4. **Fix breakage by subsystem.** zarr v3 API in `ProjectCache` + any `to_zarr`/`open_zarr`;
    numpy-2 dtype/`np.float_`-style removals; xarray resample/`.reduce` signature drift in
-   `temporal.py`; dask-geopandas dataframe API in `spatial.py`. Re-run tests per subsystem.
+   `temporal.py`; dask-geopandas dataframe API in the **weights/regions** modules
+   (`grid_weights.py`, `grid.py`, `georegions.py` — `from_geopandas`/`.sjoin`/`.buffer`/
+   `.intersection`). NOTE: `spatial.py` no longer uses `dask.dataframe` at all — it was
+   rewritten as a sparse weight-operator matmul (see item 6), removing the single biggest
+   dask-dataframe migration surface. Re-run tests per subsystem.
 5. **Re-benchmark the hot paths** on the new stack: `benchmarks/bench_engine.py` (numba vs
    dask, numpy-2) and the NUMBA_MAX_CELLS threshold; then re-run item 4's
    `profile_netcdf_zarr.py` with current kerchunk/virtualizarr on zarr-v3.
@@ -238,3 +242,36 @@ weighted-average under dask-expr, plus `from_geopandas`/`.sjoin`/`.buffer`/`.int
 in the weights/regions modules). **numpy 1→2 is trivial** (only `np.in1d`→`np.isin`, +
 numba≥0.60). **zarr v2→v3 does not touch existing code** — only item-4's new to_zarr helper.
 Keep the old `poetry.lock` recoverable in case a transitive dep still forces a compromise.
+
+---
+
+## 6. Spatial aggregation rewritten as a sparse weight-operator matmul — ✅ DONE
+
+**What:** `SpatialAggregator.compute()` (`aggfly/aggregate/spatial.py`) previously melted
+the space×time cube to a pandas frame, merged the weights, encoded `(region_id, time)` as a
+synthetic `group_ID`, wrapped the already-in-RAM frame in `dask.dataframe.from_pandas(...,
+npartitions=50)`, and did a groupby-sum. It is now the weighted average expressed directly:
+`result = (W @ C_masked) / (W @ valid)`, where `W` is a sparse (region × cell) operator built
+once from the weights table (COO triplets) and applied lazily via `dask.array.map_blocks`
+over the climate array's time chunks.
+
+**Why (both a modernization win and a real improvement):**
+- Removes the `dask.dataframe` groupby/`from_pandas` idiom — exactly the surface that churns
+  under modern dask's query planner — so this step stops depending on the fragile API before
+  the bump. It's now `dask.array` (stable) only.
+- No shuffle: each time-chunk block is independent (`W @ block`). No full-cube
+  materialization (the old path `dask.compute`'d everything then `to_dataframe`'d it).
+- Drops the `group_ID` hack, the hardcoded `npartitions=50` (which ignored the param), and the
+  in-place `self.weights["region_id"] = ...` mutation of the shared weights frame.
+- Zero new dependencies: the scatter is numpy `gather + np.add.at` (scipy.sparse is NOT in the
+  lock, so it was deliberately avoided; a scipy CSR fast-path can be added later if desired).
+
+**Parity / tests:** bit-for-bit behaviour preserved. Existing `test_aggregate` /
+`test_aggregate_numba` still green; added `test_spatial_matmul_multiregion_nan` (many-to-many
+fractional overlap + per-timestep NaN renormalization, across multiple lazy time chunks) and
+`test_spatial_matmul_dropna_empty_group` (all-NaN region/time dropped when denominator is 0),
+each checked against an independent pure-loop weighted-average oracle. Full suite: 9 passed.
+
+**Preserved quirk (flagged for later):** a cell/time is used only if *every* output name is
+non-NaN there (the old `dropna(subset=names)` coupled names through a shared denominator).
+Kept for exact parity; revisit if per-variable NaN masks are wanted.
