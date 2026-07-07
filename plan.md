@@ -203,9 +203,14 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
   `zarr`/`to_zarr`/`open_zarr` call and the `ProjectCache` store usage.
 
 **Approach (staged, each stage green before the next):**
-1. **Baseline & inventory.** Record current resolved versions (`poetry show`), run the full
-   `pytest` suite green as the reference, and grep the codebase for direct API touchpoints:
-   `xarray`, `dask`, `dask_geopandas`, `zarr`, `numpy`, `geopandas`, `rioxarray`, `numba`.
+1. **Baseline & inventory.** ✅ DONE — see `modernization_baseline.md`. Baseline is
+   **7 passed in 8.82s** on the locked py3.11 stack. Inventory refined the risk ranking:
+   the primary migration surface is **modern dask dataframe + dask-geopandas**
+   (`spatial.py` groupby weighted-average, `grid_weights.py`/`grid.py`/`georegions.py`
+   `from_geopandas`/`.sjoin`/`.buffer`/`.intersection`); **numpy 1→2 is trivial** (no
+   removed aliases; only `np.in1d`→`np.isin` at 3 sites + numba≥0.60); **zarr v2→v3 is
+   NOT a risk for existing code** (package never imports zarr; `ProjectCache` uses
+   `to_netcdf`+dill, not a zarr store — zarr v3 only matters for item-4's new helper).
 2. **Confirm the joint solution (already resolved upstream — just verify).** The
    `dask-geopandas 0.5.0` + `dask>=2025.1.0` + `python>=3.10` combo removes the old blocker;
    confirm the exact versions poetry resolves and that the pair moves together. The real work
@@ -227,7 +232,9 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
 assertions are the correctness net); numba engine still bit-equivalent to dask; benchmarks
 re-run and recorded. Land as its own branch/PR separate from feature work.
 
-**Risk/notes:** with the dask-geopandas/Python blocker resolved upstream, the highest-risk
-bumps are now **zarr v2→v3** and **numpy 1→2**, plus adapting `spatial.py` to modern dask's
-dataframe API (the surface `dask-geopandas` 0.5.0 rides on). Keep the old `poetry.lock`
-recoverable in case a transitive dep still forces a compromise.
+**Risk/notes:** the step-1 inventory (`modernization_baseline.md`) re-ranked the risks: the
+dominant surface is **modern dask dataframe + dask-geopandas** (`spatial.py` groupby
+weighted-average under dask-expr, plus `from_geopandas`/`.sjoin`/`.buffer`/`.intersection`
+in the weights/regions modules). **numpy 1→2 is trivial** (only `np.in1d`→`np.isin`, +
+numba≥0.60). **zarr v2→v3 does not touch existing code** — only item-4's new to_zarr helper.
+Keep the old `poetry.lock` recoverable in case a transitive dep still forces a compromise.
