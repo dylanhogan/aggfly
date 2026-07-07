@@ -8,10 +8,7 @@ import numpy as np
 import matplotlib.pyplot as mpl
 
 import geopandas as gpd
-import geopandas as gpd
-import dask_geopandas
-import dask
-import dask.array
+import dask.array  # used by poly_array(datatype="dask")
 from copy import deepcopy
 import warnings
 
@@ -114,13 +111,10 @@ class GeoRegions:
         """
         # If a buffer size is specified, create a buffered polygon array
         if buffer != 0:
-            # Convert GeoDataFrame to Dask GeoDataFrame with specified number of partitions
-            ddf = dask_geopandas.from_geopandas(self.shp, npartitions=chunks)
-            # Suppress warnings related to buffering operation
+            # Region polygons are a small set; buffer with plain geopandas (no dask).
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                # Suppress warnings related to buffering operation
-                bufferPoly = ddf.buffer(buffer).compute()
+                bufferPoly = self.shp.buffer(buffer)
         else:
             # Suppress warnings related to buffering operation
             bufferPoly = self.shp.geometry
@@ -184,7 +178,7 @@ class GeoRegions:
             shp = deepcopy(self)
             
         # Create a mask to select the specified regions
-        m = np.in1d(shp.regions, region_list)
+        m = np.isin(shp.regions, region_list)
         # Apply the mask to the shapefile and regions
         shp.shp = shp.shp[m].reset_index(drop=True)
         shp.regions = shp.regions[m].reset_index(drop=True)
@@ -217,7 +211,7 @@ class GeoRegions:
             shp = deepcopy(self)
             
         # Create a mask to drop the specified regions
-        m = np.in1d(shp.regions, region_list)
+        m = np.isin(shp.regions, region_list)
         # Apply the mask to the shapefile and regions, dropping the specified regions
         shp.shp = shp.shp[~m].reset_index(drop=True)
         shp.regions = shp.regions[~m].reset_index(drop=True)

@@ -8,6 +8,7 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import shapely
 
 import aggfly as af
 
@@ -77,9 +78,11 @@ def georegion():
     # Generate random latitudes
     latitude = np.random.uniform(-90, 90, 20)
     
-    polygon = gpd.GeoDataFrame(
-            {'geometry': gpd.points_from_xy(longitude, latitude)}
-        ).unary_union.convex_hull # Create convex hull polygon from points
+    # Create convex hull polygon from points (shapely.union_all is stable across
+    # geopandas 0.14/1.x, unlike the deprecated GeoDataFrame.unary_union)
+    polygon = shapely.union_all(
+        np.asarray(gpd.points_from_xy(longitude, latitude))
+    ).convex_hull
     gdf = gpd.GeoDataFrame(
         {
             'geoid' : 'region_1',

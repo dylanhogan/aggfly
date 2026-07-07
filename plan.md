@@ -240,11 +240,14 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
      wins beyond ~2-5M weight rows) but realistic grid-resolution weight frames are ~10k-500k
      rows where pandas is 3-10× faster; a size-thresholded switch is the mitigation if ever
      needed.
-   - **Regions module — TODO.** `georegions.py` still uses `dask_geopandas.from_geopandas(...)
-     .buffer(...)` and `np.in1d` (→`np.isin`) at :187,220; `shp_utils.py:32` `np.in1d`; and the
-     test fixture's `unary_union`→`union_all()`. None currently error (np.in1d still warns-only
-     in numpy 2.4), but fix for future-proofing + to finish shedding dask-geopandas from
-     small-data paths.
+   - **Regions module — ✅ DONE.** `georegions.py` `poly_array` buffer now uses plain
+     `self.shp.buffer()` (dropped `dask_geopandas`; removed the `dask_geopandas`/redundant
+     `dask` imports — only `dask.array` remains, for the optional `datatype="dask"` branch).
+     `np.in1d`→`np.isin` in `georegions.py` (`sel`/`drop`) and `shp_utils.py`. Test fixture
+     `unary_union`→`shapely.union_all(np.asarray(pts))` (stack-agnostic — shapely 2 is on both;
+     `geopandas.union_all()` doesn't exist in the locked gpd 0.14). All stack-agnostic: 9/9 on
+     BOTH envs, and the modern env now runs **warning-free**. dask-geopandas now survives only
+     in the two large cell-centroid sjoins (`grid.py`/`grid_weights.py` `mask()`).
    - **numpy 2:** `np.in1d`→`np.isin` (`georegions.py:187,220`, `shp_utils.py:32`).
    - **geopandas 1.0:** `unary_union`→`union_all()`.
    - **pandas 3.0** (bigger bump than assumed — CoW default, stricter index alignment): use
