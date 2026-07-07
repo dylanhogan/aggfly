@@ -7,29 +7,30 @@ readme = "README.md"
 packages = [{include = "aggfly"}]
 
 
-# 3.12.3 causing issues with dask and dask-geopandas
-# updates to dask causing issues for dask-geopandas
-# So can't update dask-geopandas until they release an update compatible with
-# latest dask dataframe changes, at which point we can upgrade all, hopefully
-# https://github.com/geopandas/dask-geopandas/issues/284
-# https://github.com/geopandas/dask-geopandas/issues/289
+# Modernized 2026-07. The old narrow pin (python <3.12.3, dask ^2023.11) existed only
+# because dask-geopandas lagged dask's dataframe changes (issues #284/#289) and broke at
+# 3.12.3. dask-geopandas has been removed from aggfly entirely — its only uses were two
+# point-in-polygon sjoins that are faster as plain geopandas (see benchmarks/bench_sjoin.py)
+# — so that coupling is gone and the stack moves to current majors (numpy 2, pandas 3,
+# zarr 3, geopandas 1, xarray/dask CalVer). CalVer packages use ">=" because a caret would
+# wrongly cap at the release year (^2025.x excludes 2026.x).
 [tool.poetry.dependencies]
-python = ">=3.11.6, <3.12.3"
-dask = "^2023.11.0"
-numpy = "^1.26.4"
-geopandas = "^0.14.4"
-dill = "^0.3.8"
-pyyaml = "^6.0.1"
-rasterio = "^1.3.10"
-pandas = "^2.2.2"
-xarray = "^2024.5.0"
-zarr = "^2.18.2"
-pytest = "^8.2.1"
-netcdf4 = "^1.6.5"
-numba = "^0.59.1"
-matplotlib = "^3.9.0"
-rioxarray = "^0.15.5"
-shapely = "^2.0.4"
+python = ">=3.11,<3.14"
+dask = {extras = ["distributed"], version = ">=2025.1.0"}
+numpy = ">=2.0,<3.0"
+geopandas = ">=1.0,<2.0"
+dill = ">=0.3.8"
+pyyaml = ">=6.0"
+rasterio = ">=1.4,<2.0"
+pandas = ">=2.2,<4.0"
+xarray = ">=2025.1.0"
+zarr = ">=3.0,<4.0"
+pytest = ">=8.0"
+netcdf4 = ">=1.6"
+numba = ">=0.60,<1.0"
+matplotlib = ">=3.9"
+rioxarray = ">=0.16"
+shapely = ">=2.0,<3.0"
 
 
 [build-system]

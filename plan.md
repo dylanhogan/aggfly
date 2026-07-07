@@ -173,7 +173,17 @@ current zarr-v3 / xarray, and only then build the conversion helper.
 
 ---
 
-## 5. Dependency + Python version modernization (NEXT)
+## 5. Dependency + Python version modernization — ✅ LANDED (2026-07)
+
+**STATUS:** `pyproject.toml` bumped to a current stack and `poetry.lock` regenerated;
+`python = ">=3.11,<3.14"`. Resolved + installed by poetry into a py3.12 venv and the full
+suite passes **9/9** on the actual locked stack: dask/distributed 2026.7.0, xarray 2026.4.0,
+zarr 3.1.6, numpy 2.4.6, numba 0.66.0, pandas 3.0.3, geopandas 1.1.4, shapely 2.1.2,
+rioxarray 0.19.0, rasterio 1.4.4 — and **no dask-geopandas**. CLAUDE.md + the pyproject
+comment block rewritten. Remaining (optional follow-up, not blocking): re-run the perf
+benchmarks on the new stack — `benchmarks/bench_engine.py` (numba vs dask under numpy 2 /
+numba 0.66, re-check `NUMBA_MAX_CELLS_PER_BLOCK`) and item-4's `profile_netcdf_zarr.py`
+against zarr 3 / current kerchunk-or-virtualizarr — then build the ERA5→Zarr helper (item 4).
 
 **Goal:** move aggfly off the narrow `python >=3.11.6,<3.12.3` pin and the frozen
 dask/dask-geopandas/zarr/numpy versions onto current stable releases, so we can (a) use

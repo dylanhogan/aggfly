@@ -20,9 +20,9 @@ poetry run pytest aggfly/tests/test_aggregate.py::test_weights   # run a single 
 
 Tests live in `aggfly/tests/test_aggregate.py`. The fixtures (`dataset_360`, `georegion`, `secondary_weights`, `weights`) build small synthetic in-memory objects, so tests need no external data files. Assertions compare against hardcoded numeric arrays via `np.allclose`, so changes to the aggregation math will require updating the expected values in those tests.
 
-### Python version constraint (important)
+### Dependency stack (modernized 2026-07)
 
-The version pin is deliberately narrow: `python = ">=3.11.6, <3.12.3"`. Python 3.12.3+ breaks `dask-geopandas` (dask dataframe internals changed). Do not loosen this or bump `dask`/`dask-geopandas` independently — they must move together once `dask-geopandas` releases a compatible version. See the comments at the top of `pyproject.toml`.
+`python = ">=3.11,<3.14"` on a current stack: numpy 2, pandas 3, zarr 3, geopandas 1, numba ≥0.60, and CalVer dask/xarray (2025+). The old narrow `<3.12.3` pin existed only because `dask-geopandas` lagged dask's dataframe internals and broke at 3.12.3. **`dask-geopandas` has been removed from aggfly entirely** — its only uses were two point-in-polygon sjoins now done with plain `geopandas.sjoin` (faster and lighter; see `benchmarks/bench_sjoin.py`) — so that coupling is gone. `dask` is declared with the `distributed` extra (previously distributed came in transitively via dask-geopandas). CalVer packages use `">="` constraints, not caret (a caret would wrongly cap at the release year). The `np.allclose` test fixtures are the correctness net across the bump.
 
 ## Architecture
 
