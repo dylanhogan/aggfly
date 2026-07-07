@@ -14,7 +14,6 @@ import geopandas as gpd
 import matplotlib
 
 # import pygeos
-import dask_geopandas  # still used for the large cell-centroid sjoin in mask()
 from pprint import pprint
 from copy import deepcopy
 
@@ -200,17 +199,16 @@ class GridWeights:
         centroids = self.grid.centroids()
         # Create a GeoDataFrame of the centroids with the specified CRS
         fc = gpd.GeoDataFrame(geometry=centroids.flatten()).set_crs("EPSG:4326")
-        # Convert the GeoDataFrame to a Dask GeoDataFrame for parallel processing
-        fc = dask_geopandas.from_geopandas(fc, npartitions=self.chunks)
         # Get the polygon array of the geographical regions with the specified buffer
         poly_array = np.array(self.georegions.poly_array(buffer, chunks=self.chunks))
-        # Convert the polygon array to a Dask GeoDataFrame
-        poly_array = dask_geopandas.from_geopandas(
-            gpd.GeoDataFrame(geometry=poly_array), npartitions=10
-        )
-        # Perform a spatial join to find the centroids within the polygons and compute the result
-        mask = fc.sjoin(poly_array, predicate="within").compute()
-        
+        poly = gpd.GeoDataFrame(geometry=poly_array)
+        if poly.crs is None:
+            poly = poly.set_crs(fc.crs)
+        # Spatial join: which cell centroids fall within which regions. Plain geopandas
+        # (one STRtree over the regions) is faster and lighter than dask-geopandas for
+        # this in-memory join at every grid size tested (see benchmarks/bench_sjoin.py).
+        mask = gpd.sjoin(fc, poly, predicate="within", how="inner")
+
         return mask
 
     def get_border_cells(

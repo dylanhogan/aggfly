@@ -10,7 +10,6 @@ import geopandas as gpd
 import os
 import dask
 import dask.array
-import dask_geopandas
 from functools import lru_cache
 import warnings
 
@@ -252,28 +251,22 @@ class Grid:
         # Create a GeoDataFrame from the centroids and set the CRS
         fc = gpd.GeoDataFrame(geometry=centroids.flatten()).set_crs("EPSG:4326")
 
-        # Convert the GeoDataFrame to a Dask GeoDataFrame with specified partitions
-        # fc = fc.rechunk(chunks)[...,None]
-        fc = dask_geopandas.from_geopandas(fc, npartitions=self.chunks)
-
         # Simplify polygons if needed
         if self.simplify is not None:
             georegions = self.simplify_poly_array()
         else:
             georegions = self.georegions
 
-        # Create a polygon array with the specified buffer and chunks
+        # Create a polygon array with the specified buffer
         poly_array = georegions.poly_array(buffer, chunks=self.chunks).squeeze()
+        poly = gpd.GeoDataFrame(geometry=poly_array)
+        if poly.crs is None:
+            poly = poly.set_crs(fc.crs)
 
-        # Convert the polygon array to a Dask GeoDataFrame
-        poly_shp = poly_array.shape
-        poly_array = dask_geopandas.from_geopandas(
-            gpd.GeoDataFrame(geometry=poly_array), npartitions=1
-        )
-
-        # Perform spatial join to create the mask
-        # mask = fc.map_blocks(shapely.within, poly_array, dtype=bool)
-        mask = fc.sjoin(poly_array, predicate="within").compute()
+        # Spatial join: which cell centroids fall within which regions. Plain geopandas
+        # (one STRtree over the regions) beats dask-geopandas for this in-memory join at
+        # every grid size tested (see benchmarks/bench_sjoin.py).
+        mask = gpd.sjoin(fc, poly, predicate="within", how="inner")
 
         return mask
 

@@ -233,7 +233,8 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
      cell centroids (`mask()`) on dask-geopandas — it already works on the modern stack.
      Removed now-dead `import dask`/`import dask.array`. **With this fix the whole test suite
      passes on the modern stack (9/9)** — the temporal/numba paths were only blocked behind
-     the weights fixture. **Perf validated** (`benchmarks/bench_weights.py`,
+     the weights fixture. (The `mask()` sjoin was later also moved off dask-geopandas — see the
+     dask-geopandas removal note below.) **Perf validated** (`benchmarks/bench_weights.py`,
      `benchmarks/bench_groupby.py`, 50 states × 0.25°/0.1° CONUS grid, same stack): dropping
      dask is a net win at realistic scale — end-to-end `calculate_weights` ~10-13% faster,
      memory equal (±2%), identical output, less variance. The groupby has a crossover (dask
@@ -246,8 +247,17 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
      `np.in1d`→`np.isin` in `georegions.py` (`sel`/`drop`) and `shp_utils.py`. Test fixture
      `unary_union`→`shapely.union_all(np.asarray(pts))` (stack-agnostic — shapely 2 is on both;
      `geopandas.union_all()` doesn't exist in the locked gpd 0.14). All stack-agnostic: 9/9 on
-     BOTH envs, and the modern env now runs **warning-free**. dask-geopandas now survives only
-     in the two large cell-centroid sjoins (`grid.py`/`grid_weights.py` `mask()`).
+     BOTH envs, and the modern env now runs **warning-free**.
+   - **dask-geopandas DROPPED ENTIRELY — ✅ DONE.** Profiled the two remaining `mask()` sjoins
+     (`benchmarks/bench_sjoin.py`, global grid × 50 states, modern stack): plain `gpd.sjoin`
+     beats dask-geopandas at **every** size — 8.5× @ 259k pts, 4.2× @ 1M (global ERA5 0.25°),
+     2.3× @ 6.5M, 1.3× @ 26M — with ~30% less memory and byte-identical matched counts; dask
+     never crosses over (everything fits in RAM, so its partition/graph overhead is pure cost).
+     Replaced both `mask()` sjoins with `gpd.sjoin(..., predicate="within")`, removed the
+     `dask_geopandas` imports, and **removed `dask-geopandas` from `pyproject.toml`**. Proven
+     independent: uninstalled dask-geopandas from the modern env → suite still 9/9. **This
+     eliminates the dependency whose churn forced the narrow `python <3.12.3` pin — the Python
+     range can now widen freely.** (poetry.lock regeneration deferred to step 6.)
    - **numpy 2:** `np.in1d`→`np.isin` (`georegions.py:187,220`, `shp_utils.py:32`).
    - **geopandas 1.0:** `unary_union`→`union_all()`.
    - **pandas 3.0** (bigger bump than assumed — CoW default, stricter index alignment): use
