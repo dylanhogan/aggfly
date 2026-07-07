@@ -9,7 +9,7 @@ import warnings
 import numpy as np
 import dask.array as da
 from .aggregate_utils import *
-from .nb_kernels import numba_resample, NUMBA_CALCS
+from .nb_kernels import numba_resample, NUMBA_CALCS, resolve_engine
 from ..dataset import Dataset, array_lon_to_360
 from ..weights import GridWeights
 from typing import List, Union
@@ -59,7 +59,7 @@ class TemporalAggregator:
         groupby: str,
         ddargs: List[Union[int, float]] = None,
         pre_compute: bool = False,
-        engine: str = "dask",
+        engine: str = "auto",
     ):
         self.calc = calc
         self.groupby = translate_groupby(groupby)
@@ -213,8 +213,9 @@ class TemporalAggregator:
             )
             ds = ds.compute()
 
-        use_numba = self.engine == "numba" and self.calc in NUMBA_CALCS
-        if use_numba:
+        # Resolve engine="auto" against this step's actual chunking (each step's
+        # input can be chunked differently, so decide per-execute rather than once).
+        if resolve_engine(self.engine, ds, self.calc) == "numba":
             out = numba_resample(
                 ds, self.groupby, self.calc, self.ddargs, self.multi_dd
             )

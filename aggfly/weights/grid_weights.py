@@ -14,9 +14,6 @@ import geopandas as gpd
 import matplotlib
 
 # import pygeos
-import dask
-import dask.array
-import dask_geopandas
 from pprint import pprint
 from copy import deepcopy
 
@@ -177,12 +174,8 @@ class GridWeights:
         """
         # Create a deepcopy of the georegions to preserve the original data
         georegions = deepcopy(self.georegions)
-        # Simplify the geometries in parallel using Dask
-        simplified = (
-            dask_geopandas.from_geopandas(georegions.shp, npartitions=30)
-            .simplify(self.simplify)
-            .compute()
-        )
+        # Simplify the geometries (region polygons are a small set; plain geopandas)
+        simplified = georegions.shp.geometry.simplify(self.simplify)
         # Update the geometries of the georegions with the simplified geometries
         georegions.shp["geometry"] = simplified
         self.georegions = georegions
@@ -206,17 +199,16 @@ class GridWeights:
         centroids = self.grid.centroids()
         # Create a GeoDataFrame of the centroids with the specified CRS
         fc = gpd.GeoDataFrame(geometry=centroids.flatten()).set_crs("EPSG:4326")
-        # Convert the GeoDataFrame to a Dask GeoDataFrame for parallel processing
-        fc = dask_geopandas.from_geopandas(fc, npartitions=self.chunks)
         # Get the polygon array of the geographical regions with the specified buffer
         poly_array = np.array(self.georegions.poly_array(buffer, chunks=self.chunks))
-        # Convert the polygon array to a Dask GeoDataFrame
-        poly_array = dask_geopandas.from_geopandas(
-            gpd.GeoDataFrame(geometry=poly_array), npartitions=10
-        )
-        # Perform a spatial join to find the centroids within the polygons and compute the result
-        mask = fc.sjoin(poly_array, predicate="within").compute()
-        
+        poly = gpd.GeoDataFrame(geometry=poly_array)
+        if poly.crs is None:
+            poly = poly.set_crs(fc.crs)
+        # Spatial join: which cell centroids fall within which regions. Plain geopandas
+        # (one STRtree over the regions) is faster and lighter than dask-geopandas for
+        # this in-memory join at every grid size tested (see benchmarks/bench_sjoin.py).
+        mask = gpd.sjoin(fc, poly, predicate="within", how="inner")
+
         return mask
 
     def get_border_cells(
@@ -275,29 +267,30 @@ class GridWeights:
         # Get the border cells
         border = self.get_border_cells()
 
-        # Merge the border cells with the geographical regions shapefile
+        # Line up each border cell with its region polygon (one region per cell); the
+        # left merge preserves border's row order, so the two geometry columns are
+        # positionally aligned.
         reg = border[["index_right"]].merge(
             self.georegions.shp, how="left", left_on="index_right", right_index=True
-        )
-        # Convert the merged GeoDataFrame to a Dask GeoDataFrame
-        reg = dask_geopandas.from_geopandas(
-            gpd.GeoDataFrame(reg, geometry="geometry"), npartitions=1
-        )
-        dgb = dask_geopandas.from_geopandas(
-            gpd.GeoDataFrame(border), npartitions=self.chunks
         )
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            # Intersect the border cells with the geographical regions
+            # Intersect the border cells with their regions. Border cells are a small
+            # set, so this is plain geopandas (no dask). We compare positionally
+            # (align=False, values) to reproduce the old partition-wise behaviour and
+            # avoid geopandas>=1.0's align=True index alignment, which would form a
+            # cartesian product across duplicate region labels.
             print("Intersecting...")
-            inter = dgb.geometry.intersection(reg.geometry).compute()
+            border_geom = gpd.GeoSeries(border.geometry.values, crs=border.crs)
+            reg_geom = gpd.GeoSeries(reg.geometry.values, crs=border.crs)
+            inter = border_geom.intersection(reg_geom, align=False)
             # Calculate the area weight for the intersected cells
             print("Calculating area weight")
-            inter = inter.area / self.grid.cell_area
+            area_weight = inter.area / self.grid.cell_area
 
-        # Add the area weights to the border cells GeoDataFrame
-        border["area_weight"] = inter
+        # Add the area weights to the border cells GeoDataFrame (positional).
+        border["area_weight"] = np.asarray(area_weight)
 
         return border
 
@@ -385,12 +378,9 @@ class GridWeights:
             on=["latitude", "longitude"]
         )
 
-        # Parallelize the weights DataFrame using Dask
-        dw = dask.dataframe.from_pandas(weights, npartitions=self.chunks)
-
-        # Check total raster weight per region
+        # Total raster weight per region (a small per-region groupby; plain pandas)
         raster_total = (
-            dw[["index_right", "raster_weight"]]
+            weights[["index_right", "raster_weight"]]
             .groupby("index_right")
             .sum()
             .rename(columns={"raster_weight": "total_weight"})
@@ -398,9 +388,9 @@ class GridWeights:
         raster_total["zero_weight"] = raster_total.total_weight == 0 # Identify regions with zero total weight
 
         # Merge total raster weights with the weights DataFrame
-        tw = dw.merge(
+        tw = weights.merge(
             raster_total, how="left", left_on="index_right", right_index=True
-        ).compute()
+        )
 
         # Rescale raster weights for non-zero regions
         tw.loc[np.logical_not(tw.zero_weight), ["weight"]] = tw.area_weight * (
