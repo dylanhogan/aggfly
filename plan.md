@@ -223,14 +223,22 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
    `modernization_baseline.md`; scratch env at `scratchpad/modernenv`, py3.12 pip). Under the
    modern stack the suite is **4 passed / 5 errors**, and every error is the `weights` fixture —
    the non-weights surface (spatial matmul, engine) is already clean. Concrete work:
-   - **Weights/regions dask-geopandas (the actual blocker).** Root cause in
-     `GridWeights.intersect_border_cells`: geopandas 1.0 flipped binary-op default to
-     `align=True` (cartesian blow-up on duplicate `index_right`), and dask-geopandas 0.5.0
-     partition-count semantics break the `from_geopandas(...).geometry.intersection(...)`
-     pattern — a rewrite, not a flag. **Split by data size:** drop dask-geopandas for the
-     small-data ops (border `intersection`, region `buffer`, `simplify`) → plain geopandas 1.0;
-     keep + update only the one large sjoin over all cell centroids (`grid.py Grid.mask`).
-     Possibly removes dask-geopandas as a dependency entirely.
+   - **Weights module — ✅ DONE.** Rewrote the small-data dask ops in `grid_weights.py` as
+     plain geopandas/pandas (stack-agnostic — green on BOTH the old locked stack and the
+     modern gpd1.1/pandas3/dask2026 stack, numeric assertions unchanged):
+     `intersect_border_cells` now does a positional `GeoSeries.intersection(other,
+     align=False)` (fixes the geopandas-1.0 align + dask-geopandas partition breakage);
+     `get_weighted_area_weights` uses a plain pandas groupby (dropped `dask.dataframe`);
+     `simplify_poly_array` uses plain `geometry.simplify`. Kept the one large sjoin over all
+     cell centroids (`mask()`) on dask-geopandas — it already works on the modern stack.
+     Removed now-dead `import dask`/`import dask.array`. **With this fix the whole test suite
+     passes on the modern stack (9/9)** — the temporal/numba paths were only blocked behind
+     the weights fixture.
+   - **Regions module — TODO.** `georegions.py` still uses `dask_geopandas.from_geopandas(...)
+     .buffer(...)` and `np.in1d` (→`np.isin`) at :187,220; `shp_utils.py:32` `np.in1d`; and the
+     test fixture's `unary_union`→`union_all()`. None currently error (np.in1d still warns-only
+     in numpy 2.4), but fix for future-proofing + to finish shedding dask-geopandas from
+     small-data paths.
    - **numpy 2:** `np.in1d`→`np.isin` (`georegions.py:187,220`, `shp_utils.py:32`).
    - **geopandas 1.0:** `unary_union`→`union_all()`.
    - **pandas 3.0** (bigger bump than assumed — CoW default, stricter index alignment): use
