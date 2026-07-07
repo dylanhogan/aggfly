@@ -219,13 +219,26 @@ Still verify the exact pair poetry resolves and that `dask`/`dask-geopandas` mov
 3. **Widen Python + bump core stack in a throwaway env.** In a scratch venv, bump
    python, dask(+distributed), dask-geopandas, xarray, zarr(→v3), numpy(→2.x), numba(≥0.60),
    geopandas/rioxarray/pyproj. Resolve with poetry; capture the new lock.
-4. **Fix breakage by subsystem.** zarr v3 API in `ProjectCache` + any `to_zarr`/`open_zarr`;
-   numpy-2 dtype/`np.float_`-style removals; xarray resample/`.reduce` signature drift in
-   `temporal.py`; dask-geopandas dataframe API in the **weights/regions** modules
-   (`grid_weights.py`, `grid.py`, `georegions.py` — `from_geopandas`/`.sjoin`/`.buffer`/
-   `.intersection`). NOTE: `spatial.py` no longer uses `dask.dataframe` at all — it was
-   rewritten as a sparse weight-operator matmul (see item 6), removing the single biggest
-   dask-dataframe migration surface. Re-run tests per subsystem.
+4. **Fix breakage by subsystem** (scoped by the step-2 audit — see
+   `modernization_baseline.md`; scratch env at `scratchpad/modernenv`, py3.12 pip). Under the
+   modern stack the suite is **4 passed / 5 errors**, and every error is the `weights` fixture —
+   the non-weights surface (spatial matmul, engine) is already clean. Concrete work:
+   - **Weights/regions dask-geopandas (the actual blocker).** Root cause in
+     `GridWeights.intersect_border_cells`: geopandas 1.0 flipped binary-op default to
+     `align=True` (cartesian blow-up on duplicate `index_right`), and dask-geopandas 0.5.0
+     partition-count semantics break the `from_geopandas(...).geometry.intersection(...)`
+     pattern — a rewrite, not a flag. **Split by data size:** drop dask-geopandas for the
+     small-data ops (border `intersection`, region `buffer`, `simplify`) → plain geopandas 1.0;
+     keep + update only the one large sjoin over all cell centroids (`grid.py Grid.mask`).
+     Possibly removes dask-geopandas as a dependency entirely.
+   - **numpy 2:** `np.in1d`→`np.isin` (`georegions.py:187,220`, `shp_utils.py:32`).
+   - **geopandas 1.0:** `unary_union`→`union_all()`.
+   - **pandas 3.0** (bigger bump than assumed — CoW default, stricter index alignment): use
+     positional `.to_numpy()` on computed-series assignments in the weights rewrite.
+   - zarr v3 API in `ProjectCache` + any `to_zarr`/`open_zarr`; xarray resample/`.reduce`
+     drift in `temporal.py` — re-verify (not yet exercised, blocked behind the weights fixture).
+   NOTE: `spatial.py` no longer uses `dask.dataframe` at all (rewritten as a sparse
+   weight-operator matmul, item 6). Re-run tests per subsystem.
 5. **Re-benchmark the hot paths** on the new stack: `benchmarks/bench_engine.py` (numba vs
    dask, numpy-2) and the NUMBA_MAX_CELLS threshold; then re-run item 4's
    `profile_netcdf_zarr.py` with current kerchunk/virtualizarr on zarr-v3.

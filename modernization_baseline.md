@@ -72,6 +72,63 @@ dataframe + dask-geopandas API between 2023.12 and 2025.x).
   (`grid_utils.py:171`, `crop_weights.py:231`), which xarray abstracts across zarr v2/v3.
 - zarr v3 only becomes relevant for the *new* to_zarr conversion helper (plan item 4).
 
+## Step 2 audit results — modern stack resolved & suite run (2026-07-07)
+
+**Resolution confirmed via pip on python 3.12** (the publish-path proxy, not conda — a
+conda solve would pin differently and wouldn't prove the pip/PyPI resolution). A throwaway
+`python3.12 -m venv` cleanly resolved and imported the whole stack; the geo deps all ship
+manylinux wheels now, so no conda needed:
+
+| dask | distributed | dask-geopandas | geopandas | xarray | zarr | numpy | numba | pandas | scipy |
+|------|-------------|----------------|-----------|--------|------|-------|-------|--------|-------|
+| 2026.7.0 | 2026.7.0 | 0.5.0 | 1.1.4 | 2026.4.0 | 3.2.1 | 2.4.6 | 0.66.0 | 3.0.3 | 1.18.0 |
+
+`import aggfly` works under this stack. Note the resolver also pulls **pandas 3.0** (a large
+jump beyond what the plan assumed) and **geopandas 1.1** — both matter below.
+
+**Suite under the modern stack: 4 passed / 5 errors.**
+- ✅ The 4 passing include BOTH new `test_spatial_matmul_*` tests and the engine-resolver
+  tests → the sparse-matmul spatial rewrite and the numba engine selection work unchanged
+  under numpy 2 / pandas 3 / dask 2026. The whole non-weights surface is clean.
+- ❌ All 5 errors are the **`weights` fixture setup** — the dask-geopandas surface, exactly
+  as the plan predicted. Every failing test just depends on that fixture.
+
+**Root cause (walked in the scratch env): `GridWeights.intersect_border_cells`
+(`grid_weights.py:294–300`).** The dask-geopandas element-wise `.intersection` across two
+*differently-partitioned* GeoSeries breaks in two independent ways — it is NOT a flag flip:
+1. **geopandas 1.0 flipped binary-op default to `align=True`.** With duplicate `index_right`
+   labels (many border cells per region), index alignment turns the row-wise intersection
+   into a cartesian product → `ValueError: Length of values (16) does not match ... (4)`.
+2. Adding `align=False` then hits **dask-geopandas 0.5.0 partition-count semantics** (`reg`
+   has npartitions=1, `dgb` has npartitions=chunks) → `ValueError: Lengths of inputs do not
+   match. Left: 1, Right: 4`.
+   → the whole `from_geopandas(...).geometry.intersection(...)` pattern needs a rewrite.
+
+**Scoping for step 4 — split the dask-geopandas surface by data size:**
+- **Small data → drop dask-geopandas, use plain geopandas 1.0** (`gs.intersection(other,
+  align=False)` on in-memory GeoSeries; positional `.to_numpy()` when assigning computed
+  series back). These never needed parallelism:
+  - `grid_weights.py` `intersect_border_cells` (border cells only) — the actual blocker.
+  - `grid_weights.py` `simplify_poly_array` (region polygons).
+  - `georegions.py` buffer (`from_geopandas(...).buffer(...).compute()`, regions).
+- **Large data → keep dask-geopandas, update to 0.5.0 API + verify:**
+  - `grid.py` `Grid.mask` `fc.sjoin(poly_array, predicate="within")` — `fc` is every grid-cell
+    centroid (~1e6 for a full ERA5 grid); genuine parallel sjoin. `.sjoin` API is stable, so
+    likely low-effort, but couldn't be exercised (blocked behind the weights fixture).
+  This split may let aggfly **drop dask-geopandas entirely** if the one large sjoin is the only
+  real user and can be met another way — parallel to how `spatial.py` shed `dask.dataframe`.
+
+**Other modern-stack touch-ups seen:**
+- `np.in1d` → `np.isin` (deprecated in numpy 2): `georegions.py:187,220`, `shp_utils.py:32`.
+- geopandas 1.0: `GeoSeries.unary_union` → `union_all()` (DeprecationWarning in the test
+  fixture at `test_aggregate.py:82`; grep `shp_utils.py` too).
+- pandas 3.0 is a bigger bump than planned (copy-on-write default, stricter index alignment —
+  the reindex/length errors above are partly this); the weights rewrite must use
+  pandas-3-safe idioms (explicit `.to_numpy()` on positional assignments).
+
+Scratch env for step 4 lives at `scratchpad/modernenv` (py3.12, pip). The project poetry venv
+and lock were left untouched; old env still 9/9 green.
+
 ## Environment notes
 - System/shell python is 3.12.3 (unsupported by the pin), so `poetry install` can't
   auto-select the interpreter; all commands run the py3.11 poetry venv directly:
