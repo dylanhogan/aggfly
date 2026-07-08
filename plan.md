@@ -159,11 +159,20 @@ both spatial dims — with zlib1+shuffle, dims `valid_time`(8784)×`latitude`(72
 **Decision (pinned until deps are modernized — see item 5):** for aggfly's repeated-
 processing pattern, **convert each year to Zarr once** (rechunk time-contiguous, uniform
 spatial tiles, blosc) — the clear ceiling. Keep **kerchunk** as the zero-duplication
-fallback when a second copy of 1.7 TB is unaffordable. Deferred deliverable: a first-class
-`af` helper "convert ERA5 year → Zarr". Two gotchas the helper must handle: (1) `to_zarr`
-rejects the uneven dask chunks an `isel` window yields — `.chunk()` to uniform sizes first;
-(2) kerchunk-loaded coords carry an un-copyable `_json.Scanner` in `.encoding` that crashes
-`resample` — strip `da.encoding`/coord encodings after opening.
+fallback when a second copy of 1.7 TB is unaffordable.
+
+**Helper — ✅ DONE (`aggfly/dataset/zarr_convert.py`).** `af.dataset_to_zarr(dataset, store,
+chunking="auto", target_mb=256, overwrite=...)` + `af.zarr_from_path(path, var, store, ...)`.
+Dataset-agnostic by construction: it operates on a normalized `af.Dataset` (dims already
+`latitude/longitude/time` via `dataset_from_path`'s `xycoords`/`timecoord`/`lon_is_360`/
+`preprocess`), so any gridded source aggfly can load converts with no special-casing —
+validated by a test that converts an ERA5-style `valid_time`/`lat`/`lon` file. Size-aware
+chunking keeps time contiguous under a per-chunk budget (splitting time only for very long
+hourly series). Encodes both original gotchas: (1) uniform `.chunk()` before `to_zarr`
+(rejects ragged chunks); (2) strips source `.encoding` on var+coords (prevents
+scale_factor/add_offset re-quantization and stale brick-chunk conflicts). Returns a Dataset
+on the new store that plugs into `weights_from_objects`/`aggregate_dataset`. Works on zarr
+2 and 3 (via xarray). kerchunk remains the deferred zero-copy alternative.
 
 **Why pinned:** kerchunk needs `h5py` and a version compatible with aggfly's `zarr<3` pin
 (`kerchunk==0.2.7`; ≥0.2.10 demands zarr≥3). Rather than special-case old kerchunk, we
