@@ -334,3 +334,43 @@ each checked against an independent pure-loop weighted-average oracle. Full suit
 **Preserved quirk (flagged for later):** a cell/time is used only if *every* output name is
 non-NaN there (the old `dropna(subset=names)` coupled names through a shared denominator).
 Kept for exact parity; revisit if per-variable NaN masks are wanted.
+
+---
+
+## 7. Access datasets on online/object storage (S3/GCS/HTTP) — 🔵 LOW PRIORITY / future
+
+**Goal:** let users point aggfly at climate data living on object storage (`s3://`,
+`gs://`, `az://`, `https://`) — reading a remote source, and optionally writing the
+Zarr helper's output to a remote store — not just local paths. Enables shared/hosted
+datasets and cloud-native workflows.
+
+**Why low-prio now:** current use is local ERA5 on fast disk. Adding this before there's
+a concrete cloud dataset would be speculative. Captured here so it's not lost.
+
+**What's already close:** `dataset_from_path` and the new `dataset_to_zarr` both go through
+`xr.open_dataset` / `to_zarr`, which are fsspec-aware. Reading a **remote Zarr** store is
+mostly "accept a URL + `storage_options` and pass them through" — modest work (add the
+optional deps `s3fs`/`gcsfs`, thread `storage_options` through the loaders, handle creds).
+
+**The hard part is remote NetCDF/HDF5**, and it's exactly where the reference approach we
+shelved becomes worth revisiting: reading HDF5 directly from object storage is latency-bound
+(many small *serial* range requests via the HDF5 library), which is the regime where
+kerchunk/virtualizarr give a large win (concurrent range GETs, no HDF5 round-trips) — unlike
+the local-disk case in item 4, where they gave no speedup. See item 4's re-benchmark
+(`benchmarks/bench_ref_zarr3.py`): on local disk + zarr 3, kerchunk was ≤ raw NetCDF and
+`to_zarr` won 3.4×; **that verdict is local-only and should be re-measured for cloud.**
+
+**Approach (when picked up):**
+- Add optional extras (`s3fs`, `gcsfs`, `aiohttp`) and thread `storage_options`/anon/creds
+  through `dataset_from_path`, `dataset_to_zarr`, `zarr_from_path`. Remote **Zarr** first
+  (smallest lift, and the format cloud workflows should prefer anyway).
+- For remote **NetCDF/HDF5**, re-evaluate kerchunk/virtualizarr on object storage (cold,
+  latency-bound) vs a one-time `to_zarr` into a cloud bucket. Pick per the measured trade-off.
+  Note the virtualizarr HDF-parser bug on ERA5 (`expver` bytes fill_value) must be fixed
+  upstream or worked around first.
+- Consider fsspec caching (`simplecache`) for repeated remote reads; document credential
+  handling.
+
+**Risk/notes:** keep cloud deps optional (don't bloat the core install). Object-storage
+throughput/latency varies widely, so any "reference vs rewrite" decision must be re-measured
+against the actual target bucket, not assumed from the local numbers.
