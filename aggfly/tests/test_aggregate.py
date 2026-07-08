@@ -346,6 +346,54 @@ def test_aggregate_numba(dataset_360, weights):
     )
 
 
+def test_sine_dd_partial_nan_masking():
+    # Regression guard for the sine_dd NaN-masking bug: a day whose sub-daily
+    # window contains ANY NaN must aggregate to NaN, even when the window's
+    # first timestep is valid. The old mask only inspected frame[:, :, 0] (the
+    # first timestep of the window), so a cell that was valid at that step but
+    # NaN later silently produced 0 instead of NaN. The fix masks on
+    # np.isnan(frame).any(axis=time). Both engines implement the same
+    # any-NaN-in-window rule and must agree bit-for-bit.
+    time = pd.date_range("2000-07-01", periods=4, freq="12h")  # day0: idx0,1 ; day1: idx2,3
+    lat = np.array([-45.0, 45.0])
+    lon = np.array([10.0, 100.0])
+
+    # Every cell/day is [15, 30] (day0) and [18, 28] (day1) -> straddles the
+    # threshold=20 so a valid cell yields a nonzero cooling degree day.
+    arr = np.empty((4, 2, 2), dtype="float64")
+    arr[0], arr[1], arr[2], arr[3] = 15.0, 30.0, 18.0, 28.0
+    # Cell (0,1): NaN at idx1 -> valid at the window's FIRST step, NaN later.
+    # This is the exact case the old frame[:, :, 0] mask missed.
+    arr[1, 0, 1] = np.nan
+    # Cell (1,0): NaN at idx0 -> NaN at the window's first step (reverse case).
+    arr[0, 1, 0] = np.nan
+
+    def run(engine):
+        da = xr.DataArray(
+            arr.copy(), dims=["time", "latitude", "longitude"],
+            coords={"time": time, "latitude": lat, "longitude": lon},
+        )
+        out = af.aggregate_time(
+            dataset=af.Dataset(da, lon_is_360=False), weights=None, engine=engine,
+            cdd=[('aggregate', {'calc': 'sine_dd', 'groupby': 'date', 'ddargs': [20, 99, 0]})],
+        )
+        return out["cdd"].da.transpose("latitude", "longitude", "time").values
+
+    dask_out = run("dask")
+    numba_out = run("numba")
+
+    # The two engines must be bit-equivalent (NaNs in the same places).
+    assert np.allclose(dask_out, numba_out, equal_nan=True)
+
+    # day0 is the first output timestep. Both NaN-containing windows -> NaN.
+    assert np.isnan(dask_out[0, 1, 0])  # cell (0,1): valid first step, NaN later
+    assert np.isnan(dask_out[1, 0, 0])  # cell (1,0): NaN first step
+    # Fully-valid cell/day yields a finite, nonzero degree day.
+    assert np.isfinite(dask_out[0, 0, 0]) and dask_out[0, 0, 0] > 0
+    # The NaN cell recovers on day1 (no NaN in that window).
+    assert np.isfinite(dask_out[0, 1, 1]) and dask_out[0, 1, 1] > 0
+
+
 from types import SimpleNamespace
 from aggfly.aggregate.spatial import SpatialAggregator
 
