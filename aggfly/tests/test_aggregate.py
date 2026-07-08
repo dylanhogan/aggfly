@@ -2,6 +2,7 @@
 # These tests are useful for ensuring that the dataset transformation, aggregation, 
 # and weighting functions work correctly. 
 
+import os
 import pytest
 
 import xarray as xr
@@ -445,6 +446,88 @@ def test_spatial_matmul_dropna_empty_group():
     assert got.shape == oracle.shape                       # dropped group absent in both
     assert (got[["region_id", "time"]].values == oracle[["region_id", "time"]].values).all()
     assert np.allclose(got["v"].values, oracle["v"].values, equal_nan=True)
+
+
+def test_auto_chunks_policy():
+    from aggfly.dataset.zarr_convert import _auto_chunks
+    # short series: full-time chunk, square spatial tile under budget
+    c = _auto_chunks({"latitude": 721, "longitude": 1440, "time": 8784}, 4, 256)
+    assert c["time"] == -1 and c["latitude"] == c["longitude"] and c["latitude"] >= 32
+    # very long hourly series: time must be split, spatial tile fixed, chunk under budget
+    c = _auto_chunks({"latitude": 721, "longitude": 1440, "time": 350640}, 4, 256)
+    assert c["time"] > 0 and c["time"] < 350640
+    assert c["time"] * c["latitude"] * c["longitude"] * 4 <= 256 * 1024 * 1024
+    # tiny grid: tile capped by extent
+    c = _auto_chunks({"latitude": 2, "longitude": 2, "time": 4}, 8, 256)
+    assert c["latitude"] <= 2 and c["longitude"] <= 2
+
+
+def _synthetic_dataset(nt, ny, nx, fill):
+    import aggfly as af
+    t = pd.date_range("2000-01-01", periods=nt, freq="D")
+    da = xr.DataArray(
+        np.full((nt, ny, nx), fill, dtype="float32"),
+        dims=["time", "latitude", "longitude"],
+        coords={"time": t, "latitude": np.arange(ny, dtype=float),
+                "longitude": np.arange(nx, dtype=float)},
+    )
+    return af.Dataset(da, lon_is_360=False)
+
+
+def test_dataset_to_zarr_roundtrip(dataset_360, tmp_path):
+    import aggfly as af
+    store = str(tmp_path / "roundtrip.zarr")
+    ds = dataset_360.deepcopy()
+    out = af.dataset_to_zarr(ds, store, overwrite=True)
+    # store exists; round-trip returns a Dataset with time-contiguous chunks and values
+    assert os.path.isdir(store)
+    assert isinstance(out, af.Dataset)
+    tdim = out.da.get_axis_num("time")
+    assert max(out.da.chunks[tdim]) == out.da.sizes["time"]  # time is one chunk
+    assert np.allclose(
+        ds.da.transpose("latitude", "longitude", "time").values,
+        out.da.transpose("latitude", "longitude", "time").values,
+    )
+    # refuses to clobber without overwrite
+    with pytest.raises(FileExistsError):
+        af.dataset_to_zarr(dataset_360.deepcopy(), store, overwrite=False)
+
+
+def test_dataset_to_zarr_compresses(tmp_path):
+    import aggfly as af
+    ds = _synthetic_dataset(100, 50, 50, fill=0.0)  # ~1 MB raw, highly compressible
+    store = str(tmp_path / "compress.zarr")
+    af.dataset_to_zarr(ds, store, return_dataset=False, overwrite=True)
+    raw = int(np.prod(list(ds.da.sizes.values()))) * ds.da.dtype.itemsize
+    on_disk = sum(os.path.getsize(os.path.join(r, f))
+                  for r, _, fs in os.walk(store) for f in fs)
+    assert on_disk < raw  # compression happened (data >> metadata here)
+
+
+def test_zarr_from_path_agnostic(tmp_path):
+    """The convenience path is agnostic to source naming: a file with ERA5-style
+    valid_time/lat/lon coords converts correctly via the same normalization params."""
+    import aggfly as af
+    t = pd.date_range("2016-06-01", periods=48, freq="h")
+    src = xr.Dataset(
+        {"t2m": (["valid_time", "lat", "lon"],
+                 np.arange(48 * 20 * 30, dtype="float32").reshape(48, 20, 30))},
+        coords={"valid_time": t, "lat": np.linspace(10, 20, 20),
+                "lon": np.linspace(-100, -80, 30)},
+    )
+    nc = str(tmp_path / "src.nc"); src.to_netcdf(nc)
+    store = str(tmp_path / "out.zarr")
+    out = af.zarr_from_path(nc, var="t2m", store=store,
+                            xycoords=("lon", "lat"), timecoord="valid_time",
+                            lon_is_360=False)
+    # dims normalized to latitude/longitude/time, time contiguous, values preserved
+    assert isinstance(out, af.Dataset)
+    assert set(out.da.dims) >= {"latitude", "longitude", "time"}
+    tdim = out.da.get_axis_num("time")
+    assert max(out.da.chunks[tdim]) == out.da.sizes["time"]
+    exp = src["t2m"].transpose("lat", "lon", "valid_time").values
+    got = out.da.transpose("latitude", "longitude", "time").values
+    assert np.allclose(exp, got)
 
 
 def _cube(nlat, nlon, latchunk, lonchunk, dask=True):

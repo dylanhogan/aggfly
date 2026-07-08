@@ -9,7 +9,7 @@ from .aggregate import (
     start_dask_client,
     shutdown_dask_client
 )
-from .dataset import Dataset, Grid, dataset_from_path
+from .dataset import Dataset, Grid, dataset_from_path, dataset_to_zarr, zarr_from_path
 from .weights import (
     CropWeights, 
     PopWeights, 
