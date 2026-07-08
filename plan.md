@@ -174,6 +174,23 @@ scale_factor/add_offset re-quantization and stale brick-chunk conflicts). Return
 on the new store that plugs into `weights_from_objects`/`aggregate_dataset`. Works on zarr
 2 and 3 (via xarray). kerchunk remains the deferred zero-copy alternative.
 
+**Reference approach (kerchunk/virtualizarr) re-benchmarked on the modern stack — verdict:
+NOT worth it for the local use case (`benchmarks/bench_ref_zarr3.py`, zarr 3, each config on
+its own untouched ERA5 year, cold+warm).** Read of a 120×120×full-year window:
+- A) raw NetCDF bricks: 4.5s cold / 106 MB/s
+- K1) kerchunk native bricks: 7.6s cold / 64 MB/s — **slower than raw NetCDF**
+- K2) kerchunk + rechunk: 4.8s cold ≈ raw NetCDF (the ~1.5× edge it had on zarr 2 is gone)
+- Z1) `to_zarr`: **1.3s / 364 MB/s (3.4× A)**, one-time convert 3.0s, store 0.65×
+
+Findings: (a) on zarr 3 the fsspec-reference read path lost kerchunk's old edge — K1 is worse
+than raw, K2 only ties; (b) these reads were **compute-bound (~130-140% CPU), not
+HDF5-lock-bound** as the first cold measurement suggested, so kerchunk's lock-removal buys
+nothing here; (c) **virtualizarr 2.7.0's HDFParser cannot open these ERA5 files** — crashes on
+the `expver` string coord's bytes fill_value (`AttributeError: 'bytes' object has no attribute
+'item'`). So `to_zarr` (shipped) is the answer locally. The reference approach only becomes
+attractive again for **cloud/object storage** (latency-bound serial range reads) — see item 7,
+where it must be re-measured against the actual bucket.
+
 **Why pinned:** kerchunk needs `h5py` and a version compatible with aggfly's `zarr<3` pin
 (`kerchunk==0.2.7`; ≥0.2.10 demands zarr≥3). Rather than special-case old kerchunk, we
 first modernize the dependency stack (item 5), then re-evaluate to_zarr vs kerchunk vs
