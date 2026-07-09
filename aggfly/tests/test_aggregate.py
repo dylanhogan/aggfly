@@ -500,6 +500,54 @@ def test_cftime_empty_bin_parity():
     assert np.allclose(a, b, equal_nan=True)
 
 
+def test_cftime_end_to_end_aggregate_dataset(weights):
+    # Full pipeline (weights + temporal + spatial + region merge) on a 360_day
+    # cftime dataset must run, match the dask path, and carry the model calendar
+    # through to the output panel. Uses dataset_360's grid so the weights fixture
+    # applies (weights are grid-derived and calendar-agnostic).
+    lon = np.array([90.0, 270.0]); lat = np.array([-45.0, 45.0])
+    t = _cftime_index("360_day", 360)  # 12 months of 30 days
+    arr = np.random.default_rng(3).normal(20, 15, (360, 2, 2))
+    da = xr.DataArray(arr, dims=["time", "latitude", "longitude"],
+                      coords={"time": t, "latitude": lat, "longitude": lon})
+    spec = dict(tavg=[('aggregate', {'calc': 'mean', 'groupby': 'date'}),
+                      ('aggregate', {'calc': 'sum', 'groupby': 'month'})])
+    nb = af.aggregate_dataset(dataset=af.Dataset(da.copy(), lon_is_360=True), weights=weights, engine="numba", **spec)
+    dk = af.aggregate_dataset(dataset=af.Dataset(da.copy(), lon_is_360=True), weights=weights, engine="dask", **spec)
+    assert len(nb) == 12                                        # 12 monthly rows
+    # The model calendar is preserved in the panel (cftime stamps, e.g. Feb 30).
+    assert getattr(nb["time"].iloc[0], "calendar", None) == "360_day"
+    assert np.allclose(nb["tavg"].values, dk["tavg"].values, equal_nan=True)
+
+
+def test_cftime_week_groupby_raises():
+    # Weekly grouping has no cftime offset — both engines must raise a clear,
+    # actionable error rather than a cryptic xarray "Invalid frequency string".
+    t = _cftime_index("360_day", 60)
+    da = xr.DataArray(np.random.rand(60, 2, 2), dims=["time", "latitude", "longitude"],
+                      coords={"time": t, "latitude": [-45.0, 45.0], "longitude": [10.0, 100.0]})
+    for engine in ("numba", "dask"):
+        with pytest.raises(NotImplementedError, match="week"):
+            af.aggregate_time(dataset=af.Dataset(da.copy(), lon_is_360=False), weights=None,
+                              engine=engine, v=[('aggregate', {'calc': 'mean', 'groupby': 'week'})])
+
+
+def test_cftime_roundtrip_dataset_from_path(tmp_path):
+    # Loading a non-standard-calendar store via dataset_from_path must preserve
+    # the calendar (xarray auto-uses cftime) and aggregate end to end.
+    t = _cftime_index("noleap", 365)
+    da = xr.DataArray(np.random.rand(365, 2, 2), dims=["time", "latitude", "longitude"],
+                      coords={"time": t, "latitude": [-45.0, 45.0], "longitude": [10.0, 100.0]})
+    store = str(tmp_path / "cmip.zarr")
+    da.to_dataset(name="tas").to_zarr(store, mode="w")
+    ds = af.dataset_from_path(store, var="tas", lon_is_360=False,
+                              xycoords=("longitude", "latitude"), timecoord="time")
+    assert ds.da["time"].dt.calendar == "noleap"               # calendar survived the round-trip
+    out = af.aggregate_time(dataset=ds, weights=None, engine="numba",
+                            v=[('aggregate', {'calc': 'mean', 'groupby': 'month'})])
+    assert out["v"].da.sizes["time"] == 12
+
+
 from types import SimpleNamespace
 from aggfly.aggregate.spatial import SpatialAggregator
 
