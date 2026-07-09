@@ -62,6 +62,13 @@ The three raw inputs to be used to obtain an aggregated dataset containing clima
 2. **Climatic dataset**: The raster dataset with the information at the relatively fine level that you want to aggregate at a spatially and/or temprally coarser level. For example, an ERA5 raster data with the hourly average temperature for each 0.25x0.25 degrees grid cell for the whole world. 
 3. **(Optional) Secondary weights dataset**: The raster dataset containing the the information on the variable that you want to use to compute the weights that will be used to compute the weighted average of the climatic data over each administrative region.
 
+## Command-line interface
+
+The whole workflow below can also be driven from a YAML config file — no Python
+script required — via the `aggfly` command-line interface (`aggfly run config.yaml`).
+See **[docs/cli.md](docs/cli.md)** for the commands, the config schema, and runnable
+examples in [`examples/`](examples).
+
 ## Workflow
 
 We will here present the workflow with the main functionalities of the package. For a specific example application refer to the example notebook.

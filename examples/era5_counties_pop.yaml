@@ -1,0 +1,44 @@
+# Population-weighted temperature panel for US counties.
+#
+# Same as era5_counties_area.yaml, but each grid cell is additionally weighted by
+# population (from a secondary raster), so the panel reflects the climate the
+# average *person* in the county experiences rather than the average *acre*.
+#
+#   aggfly run examples/era5_counties_pop.yaml
+
+regions:
+  path: data/usa_counties.shp
+  regionid: fips
+
+dataset:
+  path: data/era5_t2m_{year}.zarr
+  var: t2m
+  preprocess: kelvin_to_celsius
+  lon_is_360: true
+
+weights:
+  project_dir: ./aggfly_proj
+  secondary:
+    type: pop                       # population weights
+    path: data/landscan-global-2016.tif
+
+aggregate:
+  engine: auto
+  variables:
+    # daily mean temperature and its square, summed to annual (for polynomial models)
+    tavg:
+      - [aggregate, {calc: mean, groupby: date}]
+      - [transform, {transform: power, exp: [1, 2]}]
+      - [aggregate, {calc: sum, groupby: year}]
+    # count of days in each 5C bin, annually
+    temp_bins:
+      - [aggregate, {calc: mean, groupby: date}]
+      - [aggregate, {calc: bins, groupby: year, ddargs: [[0, 5, 0], [5, 10, 0], [10, 15, 0]]}]
+
+years: 1990:2000
+
+execution:
+  backend: threads
+
+output:
+  path: out/era5_counties_pop.parquet
