@@ -20,10 +20,11 @@ import pandas as pd
 import dask
 from dask.distributed import LocalCluster, Client, progress
 
-from .temporal import TemporalAggregator
+from .temporal import TemporalAggregator, translate_groupby
 from .spatial import SpatialAggregator
 from ..dataset import Dataset
 from ..weights import GridWeights
+from .nb_kernels import resolve_engine, numba_resample_fused_poly
 from .aggregate_utils import distributed_client, is_distributed, start_dask_client, shutdown_dask_client
 
 
@@ -77,6 +78,62 @@ def transform_dataset(
     return output_dict.values(), output_dict.keys()
 
 
+def fusible_poly_chain(steps):
+    """Return a normalized poly-fusion spec, or None if ``steps`` is not fusible.
+
+    Recognizes exactly the dominant chain
+        [('aggregate', {'calc': 'mean', 'groupby': <inner>}),
+         ('transform', {'transform': 'power', 'exp': <array>}),
+         ('aggregate', {'calc': 'sum'|'mean', 'groupby': <outer>})]
+    which the fused numba kernel can run in a single pass. Anything else
+    (pre-built ``TemporalAggregator`` objects, degree-day/bins inner steps,
+    ``inter``/``spline`` transforms, extra steps) returns None so the caller
+    falls back to the per-step path. Pure function — no compute.
+    """
+    if len(steps) != 3:
+        return None
+    (t0, p0), (t1, p1), (t2, p2) = steps
+    if (t0, t1, t2) != ("aggregate", "transform", "aggregate"):
+        return None
+    # only the dict-DSL form is fusible (not already-constructed aggregators)
+    if not all(isinstance(p, dict) for p in (p0, p1, p2)):
+        return None
+    if p0.get("calc") != "mean" or p0.get("ddargs") is not None or "groupby" not in p0:
+        return None
+    if p1.get("transform") != "power" or "exp" not in p1:
+        return None
+    if p2.get("calc") not in ("sum", "mean") or p2.get("ddargs") is not None or "groupby" not in p2:
+        return None
+    # Mirror transform_dataset's exponent extraction so keys/values line up.
+    exp = p1["exp"]
+    if not isinstance(exp, list):
+        exp = [exp]
+    return {
+        "inner_freq": translate_groupby(p0["groupby"]),
+        "outer_freq": translate_groupby(p2["groupby"]),
+        "outer_calc": p2["calc"],
+        "exps": exp[0],
+    }
+
+
+def fused_poly_to_dict(dataset, key, spec):
+    """Run the fused poly kernel for one output variable and return its dict.
+
+    Produces one entry per exponent, keyed ``f"{key}_{e}"`` to match the per-step
+    ``transform_dataset`` naming, so the fused path is a drop-in for the loop.
+    """
+    arrs = numba_resample_fused_poly(
+        dataset.da, spec["inner_freq"], spec["outer_freq"], spec["outer_calc"], spec["exps"],
+    )
+    out = {}
+    for e, arr in zip(spec["exps"], arrs):
+        ds = dataset.deepcopy()
+        ds.update(arr)
+        ds.history.extend([spec["inner_freq"], f"power{e}", spec["outer_freq"]])
+        out[f"{key}_{e}"] = ds
+    return out
+
+
 # def aggregate_time(
 #     dataset: Dataset,
 #     weights: GridWeights = None,
@@ -128,6 +185,15 @@ def aggregate_time(
     out_dict = {}
     # Iterate over each key-value pair in aggregator_dict
     for key, value in aggregator_dict.items():
+        # Full multi-step fusion: when the chain is the dominant
+        # mean/date -> power[...] -> (sum|mean)/<freq> pattern AND the engine
+        # resolves to numba (the small-chunk regime), run it in a single fused
+        # kernel pass instead of materializing intermediate daily/power arrays.
+        fspec = fusible_poly_chain(value)
+        if fspec is not None and resolve_engine(engine, dataset.da, "mean") == "numba":
+            out_dict = out_dict | fused_poly_to_dict(dataset, key, fspec)
+            continue
+
         keys = [key]
         data = [dataset.deepcopy()]
         # Process each tuple in the value list
