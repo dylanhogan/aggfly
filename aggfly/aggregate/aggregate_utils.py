@@ -35,13 +35,25 @@ def distributed_client():
     return client 
 
         
-def start_dask_client(n_workers: int = 2, threads_per_worker: int = 2, **kwargs):
+def start_dask_client(
+    n_workers: int = 2,
+    threads_per_worker: int = 2,
+    cap_numba_threads: int = 1,
+    **kwargs,
+):
     """
-    Start a dask distributed cluster.
+    Start a dask distributed cluster for aggfly.
 
     Args:
         n_workers (int, optional): The number of workers to use. Defaults to 2.
         threads_per_worker (int, optional): The number of threads per worker. Defaults to 2.
+        cap_numba_threads (int, optional): Numba threads to allow per worker process.
+            Each worker otherwise defaults to one numba thread per core, so with a
+            process cluster ``n_workers`` x cores_per_worker numba threads would
+            oversubscribe the machine. The numba temporal kernels get their
+            parallelism from dask fanning spatial blocks across workers, so 1
+            thread/worker is the safe default. Pass ``None`` to leave numba's
+            default untouched. Defaults to 1.
         **kwargs: Additional keyword arguments to pass to the dask Client constructor.
 
     Returns:
@@ -52,15 +64,25 @@ def start_dask_client(n_workers: int = 2, threads_per_worker: int = 2, **kwargs)
         threads_per_worker=threads_per_worker,
         **kwargs
     )
-        
+
+    # Cap numba threads on every worker to avoid process-cluster oversubscription.
+    # Best-effort: a worker without numba, or an older numba, must not break startup.
+    if cap_numba_threads is not None:
+        try:
+            import numba
+            client.run(numba.set_num_threads, cap_numba_threads)
+        except Exception as exc:  # noqa: BLE001 - startup must not fail on this
+            logging.warning("Could not cap numba threads on workers: %s", exc)
+
     arg_dict = {
-        "n_workers": n_workers, 
+        "n_workers": n_workers,
         "threads_per_worker": threads_per_worker,
+        "cap_numba_threads": cap_numba_threads,
     }
     all_dict = {**arg_dict, **kwargs}
     for k in all_dict.keys():
         client.set_metadata(['args', k], all_dict[k])
-    
+
     return client
 
 

@@ -338,3 +338,58 @@ each checked against an independent pure-loop weighted-average oracle. Full suit
 **Preserved quirk (flagged for later):** a cell/time is used only if *every* output name is
 non-NaN there (the old `dropna(subset=names)` coupled names through a shared denominator).
 Kept for exact parity; revisit if per-variable NaN masks are wanted.
+
+---
+
+## 7. Execution backend / hardware scaling — **✅ DONE (idiomatic option, 2026-07)**
+
+**Goal:** one API that runs well from a modest single-disk box up to a multi-node HPC
+cluster with a parallel filesystem, without aggfly reasoning about hardware.
+
+**Why now:** the read path is the bottleneck (see [[zarr-read-gil-bound]] / item 4), and the
+*optimal* I/O strategy is hardware-dependent — measured on this box:
+- warm read is GIL-serialized to ~2 cores under the threaded scheduler; a process cluster
+  gives ~1.86× end-to-end (16 workers × 1 numba thread; 32 regresses + worker-comm errors).
+- `/dev/sda` is a **7200rpm HDD** (ST12000NM0008): cold reads are seek-bound, so concurrency
+  (processes / `open_mfdataset` / kerchunk fan-out) *hurts* — sequential single-stream is best.
+- On SSD/NVMe (queue depth), multiple disks / parallel FS (independent channels), or object
+  storage (latency-bound), concurrency instead *helps*. So no single default is right.
+
+**Design principle:** mirror `engine="auto"` for *scheduling* — aggfly stays
+**execution-backend-agnostic**: it uses whatever dask scheduler/client is active and defaults
+to threads when none. `engine=` (which kernel) and the scheduler (how tasks execute) are
+orthogonal, both auto-defaulted, both overridable. **Correctness invariant:** numba results are
+identical across threaded vs process execution (verified) — "pick the backend for your
+hardware; the numbers never change, only the speed."
+
+**Per-hardware recipes (docs):**
+- single disk (HDD/SSD): default threaded `engine="auto"` — nothing to configure; sequential.
+- fat single node: `client = af.start_dask_client(n_workers=~16, threads_per_worker=1)` → process
+  parallelism for the GIL-bound warm read.
+- HPC multi-node + parallel FS: user brings a `dask_jobqueue.SLURMCluster`/`PBSCluster` +
+  `Client(cluster)`; aggfly uses it with **no HPC-specific code and no dask-jobqueue dependency**.
+- cloud/object store: object-store-backed zarr + distributed/async client (ties to item 4/cloud).
+
+**Decision:** idiomatic option chosen (ambient-client contract + docs + the two fixes below).
+Not the batteries-included preset factory — no new execution abstraction.
+
+**What landed:**
+1. **Fixed the trap:** removed the dead `n_workers/threads_per_worker/processes/memory_limit/
+   cluster_args` params from `aggregate_dataset` (documented but never acted on — the
+   `shutdown_dask_client()` calls were commented out). To stay non-breaking, those kwargs are
+   now absorbed from `**kwargs` and raise a `DeprecationWarning` pointing at `start_dask_client`,
+   rather than crashing or being silently misread as aggregation variables. Docstring now states
+   the ambient-client contract.
+2. **Hardened `start_dask_client`:** added `cap_numba_threads=1`, which runs
+   `client.run(numba.set_num_threads, n)` on every worker (best-effort) so N workers × per-core
+   numba threads don't oversubscribe. The safe "easy button" for local process parallelism.
+3. Confirmed no `dask.compute(..., scheduler=...)` hard-codes a scheduler; `aggregate_space`/
+   `aggregate_time` flow through the ambient scheduler. `is_distributed()`/`distributed_client()`
+   seams already existed.
+4. **Docs:** README "Execution & scaling" section — per-hardware recipes (single disk → default;
+   fat node → `start_dask_client`; HPC → `dask_jobqueue`; cloud → object-store client) + the
+   correctness invariant. `benchmarks/bench_read_scheduler.py` measures threads-vs-processes.
+
+**Non-goals (held):** no hardware detection heuristic (HDD/SSD/Lustre/S3 or SLURM allocation
+can't be reliably sniffed, and the user's client already encodes that knowledge); no new
+execution abstraction beyond the ambient-client contract + the `start_dask_client` helper.

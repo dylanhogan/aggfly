@@ -216,3 +216,47 @@ Available transformations include:
 - **exp** (Exponentiation): Computes the values raised to the specified powers, creating polynomial transformations of the data.
 
 For a more detailed application of the aggregation, refer to the example notebook.
+
+## Execution & scaling
+
+aggfly is **execution-backend-agnostic**: aggregation runs on whatever [Dask](https://www.dask.org/) scheduler or distributed client is active in your session, and falls back to Dask's threaded scheduler when none is. You choose the backend to fit your hardware; **the results are identical across backends — only the speed changes.**
+
+This matters because the temporal pipeline is usually **read-bound**, and the fastest way to read depends entirely on your storage. There is no universally best default, so aggfly does not guess — it simply uses the client you provide.
+
+Two independent knobs:
+
+- **`engine=`** picks the *temporal kernel*: `"auto"` (default), `"numba"`, or `"dask"`. See the numba engine notes above.
+- **the active Dask client** picks *how tasks execute* (threads, processes, or a cluster). Set it once before you aggregate.
+
+### Recipes by hardware
+
+**Laptop / single disk (HDD or SSD) — do nothing.** The default threaded scheduler is correct and needs no setup. On a single spinning disk, sequential reads are actually optimal, so leaving concurrency low is the right choice.
+
+```python
+df = af.aggregate_dataset(dataset=dataset, weights=weights, tavg=[...])   # threaded, zero config
+```
+
+**Fat single node (many cores, lots of RAM) — start a process cluster.** Warm/cached reads are serialized by the GIL under the threaded scheduler; separate worker processes read in parallel. Start a client first and aggfly will use it automatically:
+
+```python
+client = af.start_dask_client(n_workers=16, threads_per_worker=1)
+df = af.aggregate_dataset(dataset=dataset, weights=weights, tavg=[...])
+af.shutdown_dask_client()
+```
+
+`start_dask_client` caps numba to one thread per worker by default (`cap_numba_threads=1`) so `n_workers` × per-core numba threads don't oversubscribe the machine — the numba kernels get their parallelism from Dask fanning spatial blocks across workers.
+
+**HPC (multi-node + parallel filesystem) — bring your own cluster.** Use the standard [`dask-jobqueue`](https://jobqueue.dask.org/) tooling; aggfly needs no HPC-specific configuration and does not depend on `dask-jobqueue`:
+
+```python
+from dask_jobqueue import SLURMCluster
+from dask.distributed import Client
+cluster = SLURMCluster(cores=16, memory="64GB", ...)
+cluster.scale(jobs=8)
+client = Client(cluster)
+df = af.aggregate_dataset(dataset=dataset, weights=weights, tavg=[...])
+```
+
+**Cloud / object storage** — point `dataset_from_path` at an object-store-backed Zarr and use a distributed client; the same pattern applies.
+
+> **Note:** whether opening multiple files at once or using more worker processes *helps* depends on your storage serving parallel reads (SSD/NVMe, striped/parallel filesystems, and object stores benefit; a single spinning disk does not). Match the client to the hardware.
