@@ -393,3 +393,87 @@ Not the batteries-included preset factory — no new execution abstraction.
 **Non-goals (held):** no hardware detection heuristic (HDD/SSD/Lustre/S3 or SLURM allocation
 can't be reliably sniffed, and the user's client already encodes that knowledge); no new
 execution abstraction beyond the ambient-client contract + the `start_dask_client` helper.
+
+---
+
+## 8. cftime-aware temporal bounds builder (non-standard calendars / CMIP6) — **PLANNED (2026-07)**
+
+**Problem.** Climate-model output (CMIP6/CMIP5) frequently uses non-standard CF calendars —
+`noleap`/`365_day` (never a Feb 29), `360_day` (every month 30 days; a valid "Feb 30"),
+`all_leap`, `julian`. NumPy `datetime64` / pandas `DatetimeIndex` can only represent the real
+proleptic-Gregorian calendar, so xarray loads these as **`cftime`** objects and
+`da.get_index("time")` returns a **`CFTimeIndex`**. aggfly's numba engine builds its group
+boundaries in `resample_groups` (`aggfly/aggregate/nb_kernels.py`) with
+`pd.Series(1, index=tindex).resample(freq).count()`, and **pandas resample rejects a
+CFTimeIndex** (`TypeError: Only valid with DatetimeIndex, TimedeltaIndex or PeriodIndex`).
+So `engine="numba"` is dead on any non-standard-calendar dataset. (The dask path uses
+`ds.resample(time=freq).reduce(...)`, which xarray *does* implement for cftime — so it likely
+already works; this item makes the numba path match.)
+
+**Verified design foundation (2026-07 scratch check).** On a `360_day` daily index,
+pandas `.resample("ME")` raises as above; an **xarray resample of a position array works** and
+yields clean contiguous bounds — `[30,30,30] -> bounds [0,30,60,90]`, labels a `CFTimeIndex`
+including `2000-02-30`; `noleap` Jan/Feb gives `[31,28]`. Because this reuses the *same* xarray
+resample the dask path uses, numba bounds align with the dask reduce **by construction**.
+
+**Goal & scope.** Make the numba temporal path calendar-correct and bit-parity with dask on
+cftime indices, across all reductions (mean/nanmean/sum/min/max/dd/bins/sine_dd) and groupbys
+(date/month/year). Preserve the model calendar (don't silently convert). **In scope:** the
+bounds builder + numba driver + a surrounding-pipeline audit for datetime64 assumptions +
+synthetic-cftime tests. **Out of scope (explicit):** the scientific semantics of comparing a
+360-day/noleap panel to a Gregorian one (that is the user's modeling decision, offered as an
+opt-in `convert_calendar`, not forced); the full CMIP6 source adapter (separate item).
+
+**Design.**
+- `resample_groups(tindex, freq)`: **detect** cftime (`isinstance(tindex, xr.CFTimeIndex)`).
+  - datetime64 branch → the existing pandas path, **unchanged** (keeps the hardcoded
+    `test_aggregate_time_numba` values bit-for-bit; zero risk to the common case).
+  - cftime branch → build bounds from `xr.DataArray(np.arange(n), coords={"time": tindex})
+    .resample(time=freq).count()`: cumsum the per-bin counts (empty interior bins included as
+    zero-width, matching the dask reindex), and return the resample bin labels (a CFTimeIndex)
+    as `out_time`.
+- `numba_resample`: unaffected in structure — it already assigns `out_time` as the output
+  `time` coord; a CFTimeIndex coord is fine. Confirm `da_t.get_index("time")` yields the
+  CFTimeIndex and the transpose/chunk steps are calendar-agnostic (they are — they touch axes,
+  not values). The reduction kernels operate on *values*, never on time, so dd/bins/sine_dd are
+  calendar-agnostic already.
+- Keep the monotonic-increasing guard (works for CFTimeIndex too).
+
+**Surrounding-pipeline audit (investigate, fix only what breaks).**
+- `TemporalAggregator.execute` dask path — confirm `ds.resample(time=freq).reduce(func)` works
+  on cftime (expected yes; establishes the parity oracle).
+- `translate_groupby` freqs `1D`/`ME`/`YE`/`W` under cftime — verify `ME`/`YE` (month/year end)
+  on 360_day/noleap; `W` (7-day weeks) is an edge case on 30-day months — flag, likely rare.
+- `dataset_from_path` / `clean_dims` / `time_sel` / `time_fix` — audit for datetime64
+  assumptions. `time_sel` string indexing works on CFTimeIndex; `time_fix` and any
+  day-of-year/`.normalize()`-style math need checking. Ensure loading preserves cftime
+  (`use_cftime`) for non-standard calendars.
+- Output path — `aggregate_space` -> `to_dataframe()` yields a cftime "time" column (object
+  dtype); the region merge is on `region_id`, so this is fine, but note downstream consumers
+  get cftime stamps, not `Timestamp`s.
+
+**Calendar detection & policy (adjacent, include).** Expose the detected calendar
+(`ds.time.dt.calendar`) and two documented policies: **preserve** (default — route cftime
+through the new path; faithful) and **convert** (opt-in `convert_calendar("standard",
+align_on=...)`; lossy — drops Feb 29 / spreads 360->365; user picks `align_on`). The bounds
+builder is what makes "preserve" viable on *both* engines.
+
+**Testing (synthetic cftime cubes — no external CMIP6 files needed).**
+- Fixtures via `xr.date_range(..., calendar=..., use_cftime=True)` for `360_day` and `noleap`.
+- Parity: numba == dask (`equal_nan`) for mean/sum/dd/bins/sine_dd × groupby date/month/year,
+  with and without NaN, on each calendar.
+- Bounds hand-checks: 360_day daily→monthly = 30-day bins (`bounds` at multiples of 30);
+  noleap Feb = 28; annual on 360_day = 360 steps.
+- Empty-bin parity: a gapped cftime series → empty interior month → NaN group == dask.
+- Regression: all existing datetime64 tests stay green (that path is untouched).
+- Edge: a standard-calendar series far outside the datetime64 range (xarray loads it as cftime)
+  routes through the cftime branch and still matches.
+
+**Risks / notes.** Parity relies on xarray including empty interior bins in cftime resample the
+same way it does for datetime64 — mitigated by building the numba bounds from that very
+resample. `W`/week on 360_day is the one groupby to eyeball. No change to the datetime64 path,
+so the common case and its hardcoded tests are unaffected.
+
+**Deliverables.** Branch `feat/cftime-bounds`; `resample_groups` cftime branch (+ any audit
+fixes) in `nb_kernels.py`/`temporal.py`; cftime parity tests in `test_aggregate.py`; this plan
+item marked done; a short README note on calendar handling.
