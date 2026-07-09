@@ -77,7 +77,7 @@ def resolve_engine(engine: str, da: xr.DataArray, calc: str) -> str:
 # --------------------------------------------------------------------------- #
 # group construction — mirror xarray's resample bins
 # --------------------------------------------------------------------------- #
-def resample_groups(tindex: pd.DatetimeIndex, freq: str):
+def resample_groups(tindex, freq: str):
     """Return (contiguous group bounds, output time labels) matching xarray resample.
 
     Bins mirror xarray/pandas exactly: contiguous, time-sorted, and INCLUDING
@@ -85,12 +85,29 @@ def resample_groups(tindex: pd.DatetimeIndex, freq: str):
     the dask path even when the series has gaps. Group ``g`` spans array positions
     ``[bounds[g], bounds[g + 1])`` — this contiguity requires a monotonic time
     index, which xarray's resample also enforces.
+
+    Works for both a standard ``DatetimeIndex`` and a ``CFTimeIndex`` (non-standard
+    CF calendars — ``noleap``/``360_day`` etc. from CMIP6). pandas ``.resample``
+    rejects a ``CFTimeIndex``, so for cftime we group with *xarray's* resample —
+    the same grouping the dask path uses — over a position array, which keeps the
+    numba bounds aligned with the dask reduce by construction.
     """
     if not tindex.is_monotonic_increasing:
         raise ValueError(
             "numba engine requires a monotonic-increasing time index "
             "(xarray's resample path enforces the same)."
         )
+    if isinstance(tindex, xr.CFTimeIndex):
+        # cftime: xarray resample of a position array yields one count per output
+        # bin, in bin order — the same bins the dask path reduces over. Unlike pandas
+        # (which fills empty bins with 0), xarray's cftime `.count()` fills an empty
+        # interior bin with NaN, so zero-fill before the int64 cumsum keeps the bin as
+        # a zero-width group (-> NaN output), matching the dask reduce's reindex.
+        pos = xr.DataArray(np.arange(len(tindex)), coords={"time": tindex}, dims="time")
+        counted = pos.resample(time=freq).count()
+        counts = np.nan_to_num(counted.values, nan=0.0)
+        bounds = np.concatenate([[0], np.cumsum(counts)]).astype(np.int64)
+        return bounds, counted.get_index("time")
     # `.resample(freq).count()` uses the same pandas offset/label convention as
     # xarray and yields a count (0 for empty bins) per output bin, in bin order.
     counts = pd.Series(1, index=tindex).resample(freq).count()

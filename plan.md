@@ -396,7 +396,16 @@ execution abstraction beyond the ambient-client contract + the `start_dask_clien
 
 ---
 
-## 8. cftime-aware temporal bounds builder (non-standard calendars / CMIP6) — **PLANNED (2026-07)**
+## 8. cftime-aware temporal bounds builder (non-standard calendars / CMIP6) — **CORE DONE; audit pending (2026-07)**
+
+> **Status:** the core landed — `resample_groups` now detects a `CFTimeIndex` and builds bounds
+> from an xarray resample of a position array (datetime64 path untouched). One bug found & fixed:
+> unlike pandas, xarray's cftime `.count()` fills empty bins with **NaN**, so the cftime branch
+> zero-fills before the int64 cumsum. Tests: `test_cftime_resample_groups_bounds`,
+> `test_cftime_numba_dask_parity` (numba==dask across mean/sum/max/dd/bins/sine_dd × 360_day/noleap
+> × ±NaN), `test_cftime_empty_bin_parity`. Full suite 18 passed. **Still pending:** the
+> surrounding-pipeline audit (`translate_groupby` W/cftime, `time_fix`, output DataFrame cftime
+> column, calendar detection + convert/preserve policy) — deferred per scope decision.
 
 **Problem.** Climate-model output (CMIP6/CMIP5) frequently uses non-standard CF calendars —
 `noleap`/`365_day` (never a Feb 29), `360_day` (every month 30 days; a valid "Feb 30"),
