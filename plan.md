@@ -87,47 +87,51 @@ everything else uses the existing path. Do not try to fuse arbitrary DSL chains.
 
 ---
 
-## 3. Fix the `sine_dd` wrong-axis NaN masking bug (dask path)
+## 3. Fix the `sine_dd` NaN masking bug (dask path) — **DONE**
 
 **Goal:** correct a latent correctness bug in the existing dask degree-day code,
 independent of the numba work.
 
-**Bug:** in `aggfly/aggregate/temporal.py`, `_sine_cdd` and `_sine_hdd` compute
+> **Status (2026-07):** the code fix landed with the numba work (commit `a36fb81`);
+> this branch adds the dedicated regression test the plan called for
+> (`test_sine_dd_partial_nan_masking`). The bug description below was **corrected**
+> from an earlier draft that assumed the wrong dimension order — see the strikethrough
+> notes. Net effect and fix are unchanged.
+
+**Bug:** in `aggfly/aggregate/temporal.py`, `_sine_cdd` and `_sine_hdd` computed
 `nan_cells = da.where(np.isnan(frame[:, :, 0]), np.nan, 1)`. Within
-`resample(...).reduce(func, axis=<time>)`, `frame` is `(time, lat, lon)` and the
-time axis is the reduction axis — so `frame[:, :, 0]` indexes **longitude 0**, not
-the time slice. The NaN mask is therefore built along the wrong axis and broadcast
-incorrectly. In testing this mis-set ~27k cells (both directions: valid cells marked
-NaN and NaN cells given numbers).
+`resample(...).reduce(func, axis=<time>)`, after `clean_dims` `frame` is
+`(lat, lon, time)` and time is the last (reduction) axis. So `frame[:, :, 0]` is a
+valid `(lat, lon)` slice — **the window's first timestep** — not longitude.
+~~indexes longitude 0~~. The mask therefore only inspected the *first* timestep of
+each resample window: a cell that was **valid at the window's first step but NaN at a
+later step was left unmasked**, and since the `da.where` case conditions evaluate
+False against the NaN-propagated `tmax/tmin`, that cell silently got `0` instead of
+`NaN`. (~~this mis-set ~27k cells~~ — the "both directions / ~27k cells" figure and
+the ~~"can outright CRASH" / broadcast `ValueError`~~ were artifacts of a scratch
+harness that did not transpose to `(lat, lon, time)`; in the real pipeline layout the
+shapes always broadcast and there is no crash.)
 
-**Severity is worse than "wrong numbers": the dask path can outright CRASH.** When
-the spatial chunk length differs from a resample group's timestep count, the
-mis-shaped `nan_cells` fails to broadcast against the reduced `(lat, lon)` output —
-observed as `ValueError: operands could not be broadcast together with shapes
-(24, 16) (16, 16)` from `output = (output + case_2 + case_3) * nan_cells` in
-`_sine_cdd`, for hourly data (24-step daily groups) on a 16-wide spatial chunk. So
-`engine="dask"` + `sine_dd` is broken on realistic chunkings, while `engine="numba"`
-+ `sine_dd` works. Fixing the mask both corrects the ~27k mis-set cells AND removes
-the crash, making the two engines agree.
-
-**Correct behavior:** a group's degree-day output should be NaN iff the group window
+**Correct behavior:** a group's degree-day output is NaN iff the group window
 contains any NaN (the convention the numba kernel `_block_sine_dd` already uses; on
 valid data the two paths agree to ~1e-15).
 
-**Approach:**
-- Replace the `frame[:, :, 0]` mask with a proper "any NaN along the time/reduction
-  axis" test, e.g. `np.isnan(frame).any(axis=axis)`, applied to the reduced output.
-  Mirror the fix in both `_sine_cdd` and `_sine_hdd` (and confirm `_sine_dd` /
-  `_multi_sine_dd` inherit it).
-- Confirm `tmax`/`tmin`/`tavg` already propagate NaN via `np.max/min/mean` over
-  `axis`, so the explicit mask only needs to cover the same "any NaN in window" set.
+**Fix (landed):**
+- `nan_cells = da.where(np.isnan(frame).any(axis=axis), np.nan, 1)` in both
+  `_sine_cdd` and `_sine_hdd`. `_sine_dd` / `_multi_sine_dd` compose these and inherit
+  it. `np.zeros_like(frame[:, :, 0])` remains as a correct `(lat, lon)` shape template.
+- `tmax`/`tmin`/`tavg` already propagate NaN via `np.max/min/mean` over `axis`, so the
+  explicit mask only needs to force the same "any NaN in window" set to NaN.
 
-**Validation:** add a test with a partial-NaN window (first timestep valid, a later
-one NaN, and vice versa) asserting dask `sine_dd` == numba `sine_dd` and that both
-yield NaN. This is the case the current code gets wrong.
+**Validation (this branch):** `test_sine_dd_partial_nan_masking` builds a 2×2 grid ×
+2-day (12h) dataset with a NaN at a window's *second* step (the exact missed case) and
+at another window's *first* step, and asserts dask `sine_dd` == numba `sine_dd`
+(`equal_nan`), that both NaN windows → NaN, and that valid windows stay finite/positive.
+Reverting the mask to `frame[:, :, 0]` makes this test fail (dask yields `0.` where
+numba yields `NaN`), confirming it guards the regression.
 
-**Risk/notes:** this changes existing outputs on NaN-containing (ocean/masked) cells
-for `sine_dd` only — flag it as a bugfix in the changelog since it alters numbers for
+**Risk/notes:** the fix changed existing outputs on NaN-containing (ocean/masked) cells
+for `sine_dd` only — flag as a bugfix in the changelog since it alters numbers for
 affected cells. Pure-land datasets are unaffected.
 
 ---
