@@ -16,6 +16,7 @@ Functions:
 """
 
 from typing import List, Dict, Union, Tuple
+import warnings
 import pandas as pd
 import dask
 from dask.distributed import LocalCluster, Client, progress
@@ -197,35 +198,43 @@ def aggregate_space(
     return df
 
 
+# Cluster-construction arguments that aggregate_dataset used to advertise but never
+# acted on. aggfly is now execution-backend-agnostic (it runs on whatever Dask
+# scheduler/client is active, threads by default), so these are accepted-but-ignored
+# with a deprecation warning rather than silently misread as aggregation variables.
+_DEPRECATED_CLUSTER_KWARGS = (
+    "n_workers", "threads_per_worker", "processes", "memory_limit", "cluster_args",
+)
+
+
 def aggregate_dataset(
     weights: GridWeights,
     dataset: Dataset = None,
     aggregator_dict: Dict[str, Union[List[Tuple], TemporalAggregator]] = None,
     dataset_dict = None,
-    n_workers = 50,
-    threads_per_worker = 1,
-    processes = True,
-    memory_limit=None,
-    cluster_args = {},
     engine: str = "auto",
     **kwargs,
 ) -> pd.DataFrame:
     """
     Aggregate a dataset over time and space.
 
+    Execution is backend-agnostic: the aggregation runs on whatever Dask
+    scheduler or distributed client is active, and falls back to Dask's threaded
+    scheduler when none is. To parallelize (e.g. to break the GIL-bound read on a
+    fat node), start a client first — ``af.start_dask_client(n_workers=16,
+    threads_per_worker=1)`` — or bring your own (``dask_jobqueue`` on HPC, an
+    object-store client in the cloud) and call this normally. Results are
+    identical across backends; only speed changes. See the README "Execution &
+    scaling" section for per-hardware recipes.
+
     Args:
-        dataset (Dataset): The dataset to aggregate.
         weights (GridWeights): The weights to use for aggregation.
-        agg_dict (dict): A dictionary containing the arguments for creating TemporalAggregator objects.
-                        The keys of the dictionary are names, and the values are a list of either tuples or TemporalAggregator objects.
-                        If the list contains tuples, use them as arguments to instantiate a temporal aggregator.
-        dataset_dict (dict, optional): A dictionary containing pre-aggregated datasets. Defaults to None.
-        n_workers (int, optional): Number of workers for parallel processing. Defaults to 50.
-        threads_per_worker (int, optional): Number of threads per worker. Defaults to 1.
-        processes (bool, optional): Whether to use processes or threads. Defaults to True.
-        memory_limit (str, optional): Memory limit per worker. Defaults to None.
-        cluster_args (dict, optional): Additional arguments for cluster configuration. Defaults to {}.
-        **kwargs: Additional keyword arguments.
+        dataset (Dataset): The dataset to aggregate.
+        aggregator_dict (dict): A dictionary keyed by output name, each value a list
+                        of ``(step_type, params)`` tuples or ``TemporalAggregator`` objects.
+        dataset_dict (dict, optional): A dictionary of pre-aggregated datasets. Defaults to None.
+        engine (str, optional): Temporal backend — "auto" (default), "dask", or "numba".
+        **kwargs: Aggregation specs (used when ``aggregator_dict`` is None).
 
     Returns:
         df: A dataframe containing the aggregated data.
@@ -235,8 +244,21 @@ def aggregate_dataset(
     if dataset is None:
         raise ValueError("No dataset provided.")
 
+    # Absorb (and warn about) the retired cluster-construction kwargs so they are
+    # neither silently ignored nor mistaken for aggregation variables below.
+    stale = {k: kwargs.pop(k) for k in _DEPRECATED_CLUSTER_KWARGS if k in kwargs}
+    if stale:
+        warnings.warn(
+            f"aggregate_dataset no longer builds a Dask cluster; {sorted(stale)} "
+            "is/are ignored. aggfly now uses whatever Dask scheduler/client is "
+            "active (threads by default). To parallelize, start a client first, "
+            "e.g. af.start_dask_client(n_workers=16, threads_per_worker=1), then "
+            "call aggregate_dataset normally.",
+            DeprecationWarning, stacklevel=2,
+        )
+
     # If aggregator_dict is not provided, use kwargs
-    if aggregator_dict is None and kwargs is not None:
+    if aggregator_dict is None and kwargs:
         aggregator_dict = kwargs
 
     # Aggregate over time if aggregator_dict is provided
@@ -247,8 +269,8 @@ def aggregate_dataset(
         dataset_dict = {"variable": dataset}
         if dataset_dict is None and dataset is None:
             raise ValueError("No aggregator dict or dataset dict provided.")
-    
-    # Aggregate over space using the dataset_dict
+
+    # Aggregate over space using the dataset_dict (on the active Dask scheduler)
     df = aggregate_space(dataset_dict, weights)
     # Merge the aggregated data with geographical regions
     df = (
@@ -256,11 +278,7 @@ def aggregate_dataset(
             df, left_index=True, right_on="region_id"
         )
     ).drop(columns="region_id")
-    
-    # client.shutdown()
 
-    # _ = shutdown_dask_client()
-    
     return df
 
 

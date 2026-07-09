@@ -346,6 +346,25 @@ def test_aggregate_numba(dataset_360, weights):
     )
 
 
+def test_aggregate_dataset_deprecated_cluster_kwargs(dataset_360, weights):
+    # The retired cluster-construction kwargs must not break existing calls and
+    # must not be mistaken for aggregation variables — they warn and are ignored,
+    # yielding the same result as calling without them.
+    spec = dict(tavg=[
+        ('aggregate', {'calc': 'mean', 'groupby': 'date'}),
+        ('aggregate', {'calc': 'sum', 'groupby': 'month'}),
+    ])
+    ref = af.aggregate_dataset(dataset=dataset_360.deepcopy(), weights=weights, **spec)
+    with pytest.warns(DeprecationWarning, match="no longer builds a Dask cluster"):
+        got = af.aggregate_dataset(
+            dataset=dataset_360.deepcopy(), weights=weights,
+            n_workers=50, processes=True, cluster_args={}, **spec,
+        )
+    # 'tavg' is present (the stale kwargs were absorbed, not treated as variables)
+    assert "tavg" in got.columns and "n_workers" not in got.columns
+    assert np.allclose(got["tavg"].values, ref["tavg"].values, equal_nan=True)
+
+
 from types import SimpleNamespace
 from aggfly.aggregate.spatial import SpatialAggregator
 
