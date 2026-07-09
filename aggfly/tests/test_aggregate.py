@@ -413,6 +413,93 @@ def test_sine_dd_partial_nan_masking():
     assert np.isfinite(dask_out[0, 1, 1]) and dask_out[0, 1, 1] > 0
 
 
+# --------------------------------------------------------------------------- #
+# cftime / non-standard-calendar temporal path (CMIP6-style: noleap, 360_day)
+# --------------------------------------------------------------------------- #
+from aggfly.aggregate.nb_kernels import resample_groups
+
+
+def _cftime_index(calendar, ndays, start="2000-01-01"):
+    try:
+        return xr.date_range(start, periods=ndays, freq="D", calendar=calendar, use_cftime=True)
+    except TypeError:  # older xarray
+        return xr.cftime_range(start, periods=ndays, freq="D", calendar=calendar)
+
+
+def _cftime_dataset(calendar, ndays, nan=False, seed=0):
+    t = _cftime_index(calendar, ndays)
+    arr = np.random.default_rng(seed).normal(15, 12, (ndays, 2, 2))
+    if nan:
+        arr[:, 0, 0] = np.nan       # whole "ocean" column
+        arr[ndays // 3, 1, 1] = np.nan  # scattered -> that group's cell is NaN
+    da = xr.DataArray(arr, dims=["time", "latitude", "longitude"],
+                      coords={"time": t, "latitude": [-45.0, 45.0], "longitude": [10.0, 100.0]})
+    return af.Dataset(da, lon_is_360=False)
+
+
+def test_cftime_resample_groups_bounds():
+    # The cftime branch of the bounds builder must produce the right contiguous
+    # group boundaries for the odd calendars, and a CFTimeIndex of labels.
+    t360 = _cftime_index("360_day", 720)               # 2 years of 30-day months
+    b_m, lab_m = resample_groups(t360, "ME")
+    assert set(np.diff(b_m).tolist()) == {30}          # every month is exactly 30 days
+    assert len(lab_m) == 24 and isinstance(lab_m, xr.CFTimeIndex)
+    b_y, lab_y = resample_groups(t360, "YE")
+    assert b_y.tolist() == [0, 360, 720]               # each 360_day year is 360 steps
+
+    tnl = _cftime_index("noleap", 365)                 # noleap: Feb has 28 days
+    b_nl, _ = resample_groups(tnl, "ME")
+    assert np.diff(b_nl)[:3].tolist() == [31, 28, 31]  # Jan, Feb (no leap), Mar
+
+
+def test_cftime_numba_dask_parity():
+    # The numba engine must match the dask path bit-for-bit on cftime calendars,
+    # across every reducer and groupby, with and without NaN. (The dask path uses
+    # xarray's cftime-aware resample; this proves the numba bounds builder agrees.)
+    specs = {
+        "mean_m":  [('aggregate', {'calc': 'mean', 'groupby': 'month'})],
+        "sum_y":   [('aggregate', {'calc': 'sum', 'groupby': 'year'})],
+        "max_m":   [('aggregate', {'calc': 'max', 'groupby': 'month'})],
+        "dd_m":    [('aggregate', {'calc': 'dd', 'groupby': 'month', 'ddargs': [10, 30, 0]})],
+        "bins_m":  [('aggregate', {'calc': 'bins', 'groupby': 'month', 'ddargs': [[0, 15, 0], [15, 30, 0]]})],
+        "sine_m":  [('aggregate', {'calc': 'sine_dd', 'groupby': 'month', 'ddargs': [10, 30, 0]})],
+    }
+    for calendar in ("360_day", "noleap"):
+        for nan in (False, True):
+            ds = _cftime_dataset(calendar, 720, nan=nan)
+            for name, steps in specs.items():
+                nb = af.aggregate_time(dataset=ds.deepcopy(), weights=None, engine="numba", v=steps)
+                dk = af.aggregate_time(dataset=ds.deepcopy(), weights=None, engine="dask", v=steps)
+                assert set(nb.keys()) == set(dk.keys())
+                for k in nb:
+                    a = nb[k].da.transpose("latitude", "longitude", "time").values
+                    b = dk[k].da.transpose("latitude", "longitude", "time").values
+                    assert np.allclose(a, b, rtol=1e-9, atol=1e-9, equal_nan=True), (calendar, nan, name, k)
+
+
+def test_cftime_empty_bin_parity():
+    # A gap (a whole month missing) must yield a zero-width group -> NaN, aligned
+    # with the dask reindex. Unlike pandas, xarray's cftime .count() fills empty
+    # bins with NaN, so the bounds builder must zero-fill (no bad int64 cast).
+    import warnings
+    t = _cftime_index("360_day", 90)                       # Jan, Feb, Mar
+    keep = [i for i, x in enumerate(t) if x.month != 2]    # drop all of February
+    tg = t[keep]
+    arr = np.random.default_rng(1).normal(15, 10, (len(tg), 2, 2))
+    da = xr.DataArray(arr, dims=["time", "latitude", "longitude"],
+                      coords={"time": tg, "latitude": [-45.0, 45.0], "longitude": [10.0, 100.0]})
+    spec = [('aggregate', {'calc': 'mean', 'groupby': 'month'})]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)     # a bad int cast would raise here
+        nb = af.aggregate_time(dataset=af.Dataset(da.copy(), lon_is_360=False), weights=None, engine="numba", v=spec)
+        dk = af.aggregate_time(dataset=af.Dataset(da.copy(), lon_is_360=False), weights=None, engine="dask", v=spec)
+    a = nb["v"].da.transpose("latitude", "longitude", "time").values
+    b = dk["v"].da.transpose("latitude", "longitude", "time").values
+    assert a.shape[-1] == b.shape[-1] == 3                 # the empty Feb bin is kept
+    assert np.all(np.isnan(a[..., 1]))                     # Feb -> NaN
+    assert np.allclose(a, b, equal_nan=True)
+
+
 from types import SimpleNamespace
 from aggfly.aggregate.spatial import SpatialAggregator
 
