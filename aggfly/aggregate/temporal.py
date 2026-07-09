@@ -7,6 +7,7 @@ import os
 import warnings
 
 import numpy as np
+import xarray as xr
 import dask.array as da
 from .aggregate_utils import *
 from .nb_kernels import numba_resample, NUMBA_CALCS, resolve_engine
@@ -212,6 +213,18 @@ class TemporalAggregator:
                 "Pre-computing the aggregation may result in memory errors for large datasets."
             )
             ds = ds.compute()
+
+        # Weekly grouping has no cftime offset — xarray/cftime rejects "W" for both
+        # engines — so fail clearly here rather than with a cryptic "Invalid frequency
+        # string" from deep in xarray. (Non-standard calendars have no calendar week;
+        # substituting a 7-day block would silently differ from the datetime64 "week".)
+        if self.groupby == "W" and isinstance(ds.get_index("time"), xr.CFTimeIndex):
+            raise NotImplementedError(
+                "groupby='week' is not supported on non-standard CF calendars "
+                "(noleap/360_day/etc.): xarray/cftime has no weekly offset. Use "
+                "'date', 'month', or 'year', or convert to a standard calendar first "
+                "with DataArray.convert_calendar('standard')."
+            )
 
         # Resolve engine="auto" against this step's actual chunking (each step's
         # input can be chunked differently, so decide per-execute rather than once).

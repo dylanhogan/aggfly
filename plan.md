@@ -396,16 +396,30 @@ execution abstraction beyond the ambient-client contract + the `start_dask_clien
 
 ---
 
-## 8. cftime-aware temporal bounds builder (non-standard calendars / CMIP6) — **CORE DONE; audit pending (2026-07)**
+## 8. cftime-aware temporal bounds builder (non-standard calendars / CMIP6) — **✅ DONE (2026-07)**
 
-> **Status:** the core landed — `resample_groups` now detects a `CFTimeIndex` and builds bounds
-> from an xarray resample of a position array (datetime64 path untouched). One bug found & fixed:
-> unlike pandas, xarray's cftime `.count()` fills empty bins with **NaN**, so the cftime branch
-> zero-fills before the int64 cumsum. Tests: `test_cftime_resample_groups_bounds`,
-> `test_cftime_numba_dask_parity` (numba==dask across mean/sum/max/dd/bins/sine_dd × 360_day/noleap
-> × ±NaN), `test_cftime_empty_bin_parity`. Full suite 18 passed. **Still pending:** the
-> surrounding-pipeline audit (`translate_groupby` W/cftime, `time_fix`, output DataFrame cftime
-> column, calendar detection + convert/preserve policy) — deferred per scope decision.
+> **Core.** `resample_groups` detects a `CFTimeIndex` and builds bounds from an xarray resample of
+> a position array (datetime64 path untouched). Bug found & fixed: unlike pandas, xarray's cftime
+> `.count()` fills empty bins with **NaN**, so the cftime branch zero-fills before the int64 cumsum.
+>
+> **Audit (this pass).** An end-to-end smoke test (synthetic 360_day cube + real georegions/weights
+> → `aggregate_dataset`) revealed the surrounding pipeline is already calendar-agnostic: weights are
+> grid-derived; `clean_dims`/`sortby`/`time_sel` string-indexing work on cftime; the load path
+> (`dataset_from_path` → `open_dataset`) preserves the calendar (xarray auto-uses cftime); and the
+> output panel carries the model-calendar cftime stamps (e.g. `2000-02-30`) — numba == dask
+> throughout. **One real gap:** `groupby='week'` — cftime has NO weekly offset (`W`/`W-SUN`/`1W`
+> all rejected by xarray, in *both* engines), so `execute` now raises a clear `NotImplementedError`
+> instead of a cryptic "Invalid frequency string". `time_fix` (opt-in, ERA5-Land-specific) runs on
+> cftime without crashing.
+>
+> **Policy = preserve by default** (works out of the box); conversion to a standard calendar is a
+> user-side, opt-in `DataArray.convert_calendar(...)` (lossy, so never silent) — documented in the
+> README "Calendars" section along with the week caveat.
+>
+> **Tests:** `test_cftime_resample_groups_bounds`, `test_cftime_numba_dask_parity`
+> (mean/sum/max/dd/bins/sine_dd × 360_day/noleap × ±NaN), `test_cftime_empty_bin_parity`,
+> `test_cftime_end_to_end_aggregate_dataset`, `test_cftime_week_groupby_raises`,
+> `test_cftime_roundtrip_dataset_from_path`. Full suite green.
 
 **Problem.** Climate-model output (CMIP6/CMIP5) frequently uses non-standard CF calendars —
 `noleap`/`365_day` (never a Feb 29), `360_day` (every month 30 days; a valid "Feb 30"),
