@@ -346,6 +346,101 @@ def test_aggregate_numba(dataset_360, weights):
     )
 
 
+# --------------------------------------------------------------------------- #
+# Fused multi-step poly kernel (plan item 2)
+# --------------------------------------------------------------------------- #
+from aggfly.aggregate.aggregate import fusible_poly_chain
+
+
+def _poly_dataset(nan=False, dtype="float64"):
+    """~70 hourly days over 3 months on a 2x2 grid, optionally with NaN cells."""
+    np.random.seed(0)
+    t = pd.date_range("2000-01-01", periods=24 * 70, freq="h")
+    lat = np.array([-45.0, 45.0]); lon = np.array([90.0, 270.0])
+    arr = np.random.normal(20, 15, (len(t), 2, 2)).astype(dtype)
+    if nan:
+        arr[:, 0, 0] = np.nan   # whole ocean column
+        arr[5, 1, 1] = np.nan   # scattered -> that day and month NaN for cell (1,1)
+    da = xr.DataArray(arr, dims=["time", "latitude", "longitude"],
+                      coords={"time": t, "latitude": lat, "longitude": lon})
+    return af.Dataset(da, lon_is_360=True)
+
+
+_POLY_SPEC = [
+    ('aggregate', {'calc': 'mean', 'groupby': 'date'}),
+    ('transform', {'transform': 'power', 'exp': np.arange(1, 4)}),
+    ('aggregate', {'calc': 'sum', 'groupby': 'month'}),
+]
+
+
+def test_fusible_poly_chain_predicate():
+    # The dominant chain is fusible; the normalized spec carries translated freqs.
+    spec = fusible_poly_chain(_POLY_SPEC)
+    assert spec is not None
+    assert spec["inner_freq"] == "1D" and spec["outer_freq"] == "ME"
+    assert spec["outer_calc"] == "sum"
+    assert list(spec["exps"]) == [1, 2, 3]
+    # mean outer is also fusible
+    assert fusible_poly_chain(
+        [('aggregate', {'calc': 'mean', 'groupby': 'date'}),
+         ('transform', {'transform': 'power', 'exp': np.arange(1, 3)}),
+         ('aggregate', {'calc': 'mean', 'groupby': 'year'})])["outer_calc"] == "mean"
+    # Non-fusible chains must return None (caller falls back to per-step):
+    assert fusible_poly_chain(  # degree-day inner, not mean
+        [('aggregate', {'calc': 'dd', 'groupby': 'date', 'ddargs': [20, 99, 0]}),
+         ('aggregate', {'calc': 'sum', 'groupby': 'month'})]) is None
+    assert fusible_poly_chain(  # bins outer
+        [('aggregate', {'calc': 'mean', 'groupby': 'date'}),
+         ('aggregate', {'calc': 'bins', 'groupby': 'month', 'ddargs': [[0, 1, 0]]})]) is None
+    assert fusible_poly_chain(  # interaction transform, not power
+        [('aggregate', {'calc': 'mean', 'groupby': 'date'}),
+         ('transform', {'transform': 'inter'}),
+         ('aggregate', {'calc': 'sum', 'groupby': 'month'})]) is None
+    assert fusible_poly_chain(_POLY_SPEC[:2]) is None  # wrong length
+
+
+def test_fused_poly_matches_dask():
+    # engine="numba" runs the fused kernel; it must match the dask per-step path
+    # (and thus the hardcoded fixtures) across sum/mean outer and NaN cells.
+    for outer in ("sum", "mean"):
+        for nan in (False, True):
+            ds = _poly_dataset(nan=nan)
+            spec = [('aggregate', {'calc': 'mean', 'groupby': 'date'}),
+                    ('transform', {'transform': 'power', 'exp': np.arange(1, 4)}),
+                    ('aggregate', {'calc': outer, 'groupby': 'month'})]
+            fused = af.aggregate_time(dataset=ds.deepcopy(), weights=None, engine="numba", v=spec)
+            ref = af.aggregate_time(dataset=ds.deepcopy(), weights=None, engine="dask", v=spec)
+            assert set(fused.keys()) == {"v_1", "v_2", "v_3"} == set(ref.keys())
+            for k in fused:
+                f = fused[k].da.transpose("time", "latitude", "longitude").values
+                d = ref[k].da.transpose("time", "latitude", "longitude").values
+                assert np.allclose(f, d, rtol=1e-6, atol=1e-8, equal_nan=True), (outer, nan, k)
+
+
+def test_fused_poly_is_actually_used(monkeypatch):
+    # Prove the fused path is taken for fusible+numba, and NOT for dask or
+    # non-fusible chains (which fall back to the per-step path).
+    import aggfly.aggregate.aggregate as agg
+    calls = {"n": 0}
+    orig = agg.numba_resample_fused_poly
+    monkeypatch.setattr(agg, "numba_resample_fused_poly",
+                        lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1), orig(*a, **k))[1])
+    ds = _poly_dataset()
+
+    af.aggregate_time(dataset=ds.deepcopy(), weights=None, engine="numba", v=_POLY_SPEC)
+    assert calls["n"] == 1                       # fusible + numba -> fused
+
+    calls["n"] = 0
+    af.aggregate_time(dataset=ds.deepcopy(), weights=None, engine="dask", v=_POLY_SPEC)
+    assert calls["n"] == 0                        # dask -> per-step, never fused
+
+    calls["n"] = 0
+    af.aggregate_time(dataset=ds.deepcopy(), weights=None, engine="numba",
+                      c=[('aggregate', {'calc': 'dd', 'groupby': 'date', 'ddargs': [20, 99, 0]}),
+                         ('aggregate', {'calc': 'sum', 'groupby': 'month'})])
+    assert calls["n"] == 0                        # non-fusible + numba -> per-step
+
+
 from types import SimpleNamespace
 from aggfly.aggregate.spatial import SpatialAggregator
 

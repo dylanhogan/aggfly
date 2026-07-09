@@ -18,11 +18,15 @@ NaN convention (matches the current numpy funcs, except where noted):
                                   count, never NaN), matching the bool-mask sum.
   - empty bins (time gaps)      : every reducer -> NaN, matching xarray's reindex
                                   fill for empty resample bins.
-  - sine_dd                     : uses the any-NaN-in-window rule above. NOTE the
-                                  legacy `_sine_cdd`/`_sine_hdd` mask NaNs along the
-                                  wrong axis (`frame[:, :, 0]` indexes longitude,
-                                  not time); this kernel fixes that. On non-NaN data
-                                  the two agree to ~1e-15.
+  - sine_dd                     : uses the any-NaN-in-window rule above, matching
+                                  the fixed `_sine_cdd`/`_sine_hdd` (both now mask on
+                                  `np.isnan(frame).any(axis=time)`). On non-NaN data
+                                  the two paths agree to ~1e-15.
+
+This module also provides a *fused* poly driver (`numba_resample_fused_poly`) that
+runs the whole `mean/date -> power[...] -> (sum|mean)/<freq>` chain in one compiled
+pass per spatial chunk, with no intermediate daily arrays materialized. See its
+docstring for the fusion contract and NaN/dtype semantics.
 """
 import numpy as np
 import pandas as pd
@@ -232,6 +236,96 @@ def _block_sine_dd(cube, bounds, ddargs, out):
                                 part = 0.0
                             val += -part if j == 0 else part
                     out[g, iy, ix, d] = val
+
+
+# --------------------------------------------------------------------------- #
+# fused multi-step kernel: daily inner-mean -> powers -> outer sum|mean
+# --------------------------------------------------------------------------- #
+@njit(nogil=True, parallel=True, fastmath=False)
+def _block_fused_poly(cube, inner_bounds, outer_bounds, powers, outer_code, out):
+    """One pass: inner-group mean -> raise to each power -> outer-group sum|mean.
+
+    ``inner_bounds`` groups the time axis into inner (daily) bins; ``outer_bounds``
+    groups those inner bins into outer (monthly/yearly) bins. ``out`` is
+    ``(n_outer, NY, NX, P)`` float64. ``outer_code``: 1=sum, 0=mean.
+
+    NaN rules mirror the per-step path exactly: an inner bin is NaN if it is empty
+    or contains any NaN (matching ``mean``); an outer result is NaN if it is empty
+    or any of its inner values is NaN (matching ``sum``/``mean`` NaN propagation).
+    Accumulation and output are float64 (the per-step path promotes via
+    ``np.power(., int64)``); for float32 inputs this avoids an intermediate
+    float32 rounding, so results match the per-step path to floating-point
+    tolerance rather than bit-for-bit.
+    """
+    n_days = inner_bounds.shape[0] - 1
+    n_outer = outer_bounds.shape[0] - 1
+    NY = cube.shape[1]; NX = cube.shape[2]; P = powers.shape[0]
+    for iy in prange(NY):
+        dmean = np.empty(n_days, np.float64)
+        for ix in range(NX):
+            for d in range(n_days):
+                lo = inner_bounds[d]; hi = inner_bounds[d + 1]
+                s = 0.0; n = 0; hasnan = False
+                for k in range(lo, hi):
+                    v = cube[k, iy, ix]
+                    if np.isnan(v):
+                        hasnan = True
+                    else:
+                        s += v; n += 1
+                if hi == lo or hasnan:
+                    dmean[d] = np.nan
+                else:
+                    dmean[d] = s / n
+            for m in range(n_outer):
+                lo = outer_bounds[m]; hi = outer_bounds[m + 1]
+                for p in range(P):
+                    acc = 0.0; cnt = 0; hasnan = False
+                    for d in range(lo, hi):
+                        dm = dmean[d]
+                        if np.isnan(dm):
+                            hasnan = True
+                        else:
+                            acc += dm ** powers[p]; cnt += 1
+                    if hi == lo or hasnan:
+                        out[m, iy, ix, p] = np.nan
+                    elif outer_code == 1:
+                        out[m, iy, ix, p] = acc
+                    else:
+                        out[m, iy, ix, p] = acc / cnt
+
+
+def _poly_wrap(blk, inner_bounds=None, outer_bounds=None, powers=None, outer_code=None):
+    out = np.empty((outer_bounds.shape[0] - 1, blk.shape[1], blk.shape[2], powers.shape[0]), np.float64)
+    _block_fused_poly(np.ascontiguousarray(blk), inner_bounds, outer_bounds, powers, outer_code, out)
+    return out
+
+
+def numba_resample_fused_poly(da, inner_freq, outer_freq, outer_calc, exps):
+    """Fused ``mean/inner -> power[exps] -> (sum|mean)/outer`` in one kernel pass.
+
+    Returns a list of ``xarray.DataArray`` (one per exponent, in ``exps`` order),
+    each shaped like the per-step path's final output (outer time x spatial) and
+    dtype float64. ``inner_freq``/``outer_freq`` are already-translated pandas
+    offsets (e.g. ``"1D"``, ``"ME"``); ``outer_calc`` is ``"sum"`` or ``"mean"``.
+    """
+    spatial = [d for d in da.dims if d != "time"]
+    if len(spatial) != 2:
+        raise ValueError(f"numba engine expects 2 spatial dims, got {spatial}")
+    da_t = da.transpose("time", *spatial).chunk({"time": -1})
+    inner_bounds, inner_time = resample_groups(da_t.get_index("time"), inner_freq)
+    outer_bounds, outer_time = resample_groups(inner_time, outer_freq)
+    powers = np.asarray(list(exps), dtype=np.float64)
+    outer_code = 1 if outer_calc == "sum" else 0
+    G = len(outer_time); P = len(powers)
+    ych, xch = da_t.chunks[1], da_t.chunks[2]
+    out = darr.map_blocks(
+        _poly_wrap, da_t.data, inner_bounds=inner_bounds, outer_bounds=outer_bounds,
+        powers=powers, outer_code=outer_code, dtype=np.float64,
+        chunks=((G,), ych, xch, (P,)), new_axis=[3],
+    )
+    coords = {"time": outer_time, spatial[0]: da_t[spatial[0]], spatial[1]: da_t[spatial[1]]}
+    arr = xr.DataArray(out, dims=["time", *spatial, "power"], coords=coords)
+    return [arr.isel(power=i, drop=True) for i in range(P)]
 
 
 # --------------------------------------------------------------------------- #

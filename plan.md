@@ -49,41 +49,82 @@ the threshold is documented in one place. Do not change results, only scheduling
 
 ---
 
-## 2. Full multi-step fusion (daily-mean → poly → monthly-sum in one kernel pass)
+## 2. Full multi-step fusion (daily-mean → poly → monthly-sum in one kernel pass) — **IMPLEMENTED; marginal win, disposition pending**
+
+> **Finding (2026-07, `benchmarks/bench_fusion.py`, ERA5 2016, poly SPEC power[1..4],
+> native chunks):** fusion is correct but the payoff is small.
+> - **End-to-end (with zarr I/O): 1.04×** — negligible; and peak RAM is *worse*
+>   (10.1 GB fused vs 8.3 GB per-step, from the float64 `(n_month, Y, X, P)` block).
+> - **Compute-only (cube persisted in RAM): 1.29×** — a real but modest compute edge,
+>   masked end-to-end because reading the zarr + the inner daily reduction over 8784
+>   hourly steps dominate, and both paths share that cost.
+>
+> Root cause: the numba engine (item 1) already removed the per-task GIL overhead that
+> was the actual bottleneck; the downstream power/monthly-sum passes operate on the
+> tiny post-daily-reduction array (366×spatial), so collapsing them saves little. The
+> prototype's ~10× was measured against the per-step **dask** path, which numba already
+> beats via the daily reduction alone — not against per-step numba.
+>
+> Correctness is solid: fused matches the float64 dask truth to ~1e-7 relative
+> (slightly *tighter* than per-step numba, which rounds the daily mean to float32),
+> NaN patterns identical. **Recommendation:** do not enable by default — the 4%
+> end-to-end gain doesn't justify the added kernel/predicate/dispatch complexity and
+> the higher peak RAM. Keep as a documented experiment (this branch) unless a
+> compute-bound, in-memory, many-power workload materializes. See disposition options
+> discussed with the maintainer.
 
 **Goal:** for common multi-step specs, run the whole temporal chain in a single
 compiled pass per spatial chunk with no intermediate dask arrays materialized —
 the biggest remaining win for polynomial/degree-day panels.
 
-**Why:** the current `engine="numba"` still runs each spec step as its own
-`map_blocks` (daily mean, then power, then monthly sum), materializing intermediate
-daily arrays and rebuilding the graph per step. The standalone prototype in the
-scratchpad (`numba_fused.py`) did hourly→daily-mean→powers→monthly-sum in ONE pass
-and hit ~10× on a single chunk-year with zero intermediate materialization.
+**Why:** `engine="numba"` used to run each spec step as its own `map_blocks` (daily
+mean, then power, then monthly sum), materializing intermediate daily/power arrays
+and rebuilding the graph per step (P+1 extra passes for P powers). The scratchpad
+prototype (`numba_fused.py`) did hourly→daily-mean→powers→monthly-sum in ONE pass at
+~10× on a single chunk-year with zero intermediate materialization.
 
-**Approach:**
-- Recognize a fusible spec chain in `aggregate_time` before dispatching per step.
-  Target the dominant pattern first:
-  `[('aggregate', mean/date), ('transform', power[...]), ('aggregate', sum|mean/<freq>)]`
-  and the degree-day variant
-  `[('aggregate', dd/date or sine_dd/date), ('aggregate', sum/<freq>)]`.
-- Add a `fused_*` kernel in `nb_kernels.py` parameterized by: inner group (date),
-  outer group (month/year), inner reduction (mean), transform (powers array) or
-  degree-day thresholds, outer reduction (sum/mean). Emit output shape
-  `(n_outer, P, Y, X)` (or per-threshold) directly.
-- Keep the two-level group bookkeeping (`day_of`, `month_of_day`, bounds) that the
-  prototype already validated.
-- Gate behind the same `engine`/`auto` selection and the small-chunk regime.
-- Non-fusible specs (splines, interactions, `inter`, multiple upstream datasets,
-  multi-`ddargs` crossed with powers) fall back to the current per-step numba path.
+**What landed (poly chain):**
+- `fusible_poly_chain(steps)` (pure predicate, `aggregate/aggregate.py`) recognizes
+  exactly `[('aggregate', mean/<inner>), ('transform', power[...]),
+  ('aggregate', sum|mean/<outer>)]` and returns a normalized spec (translated inner/
+  outer freqs, outer calc, exponents); anything else → `None`.
+- `_block_fused_poly` + `numba_resample_fused_poly` (`aggregate/nb_kernels.py`):
+  one `nogil, parallel` kernel does inner-mean → `**power` → outer sum|mean over
+  two-level `resample_groups` bounds (reused for both levels, so bins align with
+  xarray exactly incl. empty bins). Output axis is `(n_outer, Y, X, P)`, split into
+  one DataArray per power (mirroring `transform_dataset`'s `{key}_{e}` naming).
+- `aggregate_time` checks the predicate before the per-step loop and, **only when
+  `resolve_engine(engine, da, "mean") == "numba"`** (i.e. the small-chunk regime or
+  explicit `engine="numba"`), runs the fused kernel; otherwise the existing per-step
+  path runs unchanged. `engine="dask"` never fuses.
+- **NaN/dtype semantics:** an inner day is NaN if empty or contains any NaN (= `mean`);
+  an outer result is NaN if empty or any inner day is NaN (= `sum`/`mean`). The kernel
+  accumulates and outputs **float64** — matching the per-step path, which already
+  promotes via `np.power(., int64)`. For float64 inputs the fused path is **bit-exact**
+  vs per-step/dask; for float32 inputs it matches to ~1e-6 (it skips per-step's
+  intermediate float32 rounding of the daily mean, i.e. it is strictly higher
+  precision).
 
-**Validation:** assert bit-equivalence to the per-step numba path (and thus dask)
-on the test fixtures and on a synthetic NaN-containing cube; then benchmark the
-fused vs per-step numba on real ERA5 for the canonical poly SPEC.
+**Validation (done):** `test_fusible_poly_chain_predicate` (pure), `test_fused_poly_
+matches_dask` (fused == dask across sum/mean outer × with/without NaN), and
+`test_fused_poly_is_actually_used` (monkeypatch proves fusion fires for fusible+numba
+and NOT for dask/non-fusible). The pre-existing `test_aggregate_time_numba` /
+`test_aggregate_numba` (hardcoded poly values) now exercise the fused path and still
+pass bit-for-bit. Benchmark: `benchmarks/bench_fusion.py` — fused vs per-step numba on
+the real ERA5 poly SPEC at native chunks; measured **1.04× end-to-end / 1.29×
+compute-only** (see the Finding box above; correctness checked in-script).
 
-**Risk/notes:** fusion multiplies the combinatorics of supported specs — scope it to
-the two named chains above and keep a clean "is this chain fusible?" predicate;
-everything else uses the existing path. Do not try to fuse arbitrary DSL chains.
+**Deferred (scoped follow-up):** the degree-day variant
+`[('aggregate', dd/sine_dd/date), ('aggregate', sum/<freq>)]` is a natural second
+fused kernel (inner dd/sine_dd math already exists in `_block_dd`/`_block_sine_dd`;
+needs the two-level grouping + per-threshold output + `multi_dd_to_dict` key split).
+Not yet implemented — the poly chain was the dominant/biggest win. The predicate is
+structured so a `fusible_dd_chain` can be added alongside `fusible_poly_chain`.
+
+**Risk/notes:** fusion multiplies the combinatorics of supported specs — kept scoped
+to the one named chain with a clean pure predicate; everything else (splines, `inter`,
+multi-`ddargs`, multiple upstream datasets, pre-built `TemporalAggregator` objects)
+falls back to the per-step path. Do not try to fuse arbitrary DSL chains.
 
 ---
 
