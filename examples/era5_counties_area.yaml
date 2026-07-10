@@ -1,0 +1,42 @@
+# Area-weighted daily-mean → annual-sum temperature panel for US counties.
+#
+#   aggfly validate examples/era5_counties_area.yaml
+#   aggfly run      examples/era5_counties_area.yaml
+#
+# Edit the paths to point at your own shapefile and ERA5 Zarr store. Use
+# `aggfly info <your.zarr> --var t2m` to confirm var name, units, lon convention,
+# and coordinate names before running.
+
+regions:
+  path: data/usa_counties.shp
+  regionid: fips
+
+dataset:
+  path: data/era5_t2m_{year}.zarr   # one Zarr per year; {year} is looped over `years`
+  var: t2m
+  preprocess: kelvin_to_celsius     # ERA5 t2m is in Kelvin
+  lon_is_360: true                  # ERA5 longitudes run 0..360
+  timecoord: time
+  xycoords: [longitude, latitude]
+
+weights:
+  project_dir: ./aggfly_proj        # weights are cached here and reused across years
+
+aggregate:
+  engine: auto
+  variables:
+    # daily mean, then annual mean and annual sum of degree-days above 10C
+    tavg:
+      - [aggregate, {calc: mean, groupby: date}]
+      - [aggregate, {calc: mean, groupby: year}]
+    gdd_10_30:
+      - [aggregate, {calc: dd,  groupby: date, ddargs: [10, 30, 0]}]
+      - [aggregate, {calc: sum, groupby: year}]
+
+years: 1990:2000
+
+execution:
+  backend: threads                  # switch to `processes` on a many-core node
+
+output:
+  path: out/era5_counties_area.parquet

@@ -31,7 +31,11 @@ numba = ">=0.60,<1.0"
 matplotlib = ">=3.9"
 rioxarray = ">=0.16"
 shapely = ">=2.0,<3.0"
+click = ">=8.1,<9.0"
+pyarrow = ">=15.0"
 
+[tool.poetry.scripts]
+aggfly = "aggfly.cli.main:cli"
 
 [build-system]
 requires = ["poetry-core"]
