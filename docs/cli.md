@@ -7,8 +7,8 @@ config file, without writing a Python script.
 Installing the package puts an `aggfly` executable on your `PATH`:
 
 ```bash
-poetry install
-aggfly --help
+uv sync
+uv run aggfly --help
 ```
 
 ## The four commands
