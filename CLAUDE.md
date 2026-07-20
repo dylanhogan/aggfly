@@ -10,13 +10,16 @@ The package is imported as `af` (`import aggfly as af`). The public API is re-ex
 
 ## Commands
 
-Dependency management is via Poetry (`pyproject.toml`, `poetry.lock`):
+Dependency management is via [uv](https://docs.astral.sh/uv/) (`pyproject.toml` with PEP 621 `[project]` metadata, `uv.lock`):
 
 ```bash
-poetry install              # install deps into a virtualenv
-poetry run pytest           # run the full test suite
-poetry run pytest aggfly/tests/test_aggregate.py::test_weights   # run a single test
+uv sync                     # create .venv and install deps (incl. the dev group)
+uv run pytest               # run the full test suite
+uv run pytest aggfly/tests/test_aggregate.py::test_weights   # run a single test
+uv run aggfly --help        # invoke the CLI entry point
 ```
+
+uv manages its own Python interpreter (pinned in `.python-version`), so runs are isolated from any system/conda Python. Migrated from Poetry 2026-07; the build backend is hatchling and `pytest` lives in the `dev` dependency group.
 
 Tests live in `aggfly/tests/test_aggregate.py`. The fixtures (`dataset_360`, `georegion`, `secondary_weights`, `weights`) build small synthetic in-memory objects, so tests need no external data files. Assertions compare against hardcoded numeric arrays via `np.allclose`, so changes to the aggregation math will require updating the expected values in those tests.
 
