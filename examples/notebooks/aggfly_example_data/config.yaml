@@ -1,0 +1,27 @@
+
+regions:
+  path: region.shp
+  regionid: ISO_A3
+
+dataset:
+  path: climate.zarr
+  var: tas
+  xycoords: [lon, lat]
+  timecoord: time
+  lon_is_360: true
+  preprocess: kelvin_to_celsius
+  chunks: {time: 365, lat: -1, lon: -1}
+
+weights:
+  project_dir: ./proj
+
+aggregate:
+  variables:
+    tavg:
+      - [aggregate, {calc: mean, groupby: year}]
+    gdd:
+      - [aggregate, {calc: dd, groupby: date, ddargs: [10, 30, 0]}]
+      - [aggregate, {calc: sum, groupby: year}]
+
+output:
+  path: panel.csv

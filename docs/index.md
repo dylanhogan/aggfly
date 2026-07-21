@@ -38,7 +38,8 @@ population or cropland.
 - [**`quickstart_public_data.ipynb`**](../examples/notebooks/quickstart_public_data.ipynb) — a
   standalone notebook that downloads everything it needs (~25 MB of public data, no accounts or
   local files) and runs the full pipeline, comparing area- vs population-weighted results.
-- [`examples/notebooks/`](../examples/notebooks/) — a worked US-county example.
+- [`aggfly_example_data/config.yaml`](../examples/notebooks/aggfly_example_data/config.yaml) —
+  the CLI config that notebook generates, kept as a worked example.
 
 ## Two ways to use aggfly
 

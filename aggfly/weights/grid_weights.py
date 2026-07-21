@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
+import shapely
 import matplotlib
 
 # import pygeos
@@ -36,7 +37,7 @@ class GridWeights:
         project_dir: Optional[str] = None,
         simplify: Optional[Union[float, int]] = None,
         default_to_area_weights: bool = True,
-        cosine_area: bool = True,
+        cosine_area: Optional[bool] = None,
         verbose: bool = True,
     ):
         """
@@ -60,7 +61,22 @@ class GridWeights:
             Whether to default to area weights (default is True).
         cosine_area : bool, optional
             Whether to correct area weights for cell-area distortion by latitude
-            (multiply by cos(latitude)). Default is True.
+            (multiply by cos(latitude)).
+
+            Defaults to None, meaning "choose automatically": True for area-only
+            weights, False when ``raster_weights`` is given.
+
+            The correction converts a cell's extent in degrees into physical
+            area, which is what area weighting wants. A secondary raster such as
+            LandScan or WorldPop already reports how many people (or hectares)
+            are *in* each cell, so a poleward cell being physically smaller is
+            already reflected in its value; applying cos(latitude) on top of it
+            counts the same distortion twice and biases regions that span a wide
+            range of latitudes.
+
+            Set it explicitly to override: pass True if your secondary raster is
+            a density per unit *physical* area (e.g. people per km squared),
+            where the conversion is still required.
         verbose : bool, optional
             Whether to print verbose output (default is True).
         weights : GeoDataFrame
@@ -78,6 +94,11 @@ class GridWeights:
         self.weights = None
         self.nonzero_weight_coords = None
         self.nonzero_weight_mask = None
+        # Resolve the automatic default. Store the resolved boolean so it lands
+        # in cdict() and therefore in the cache key: the two modes must not
+        # share a cache entry.
+        if cosine_area is None:
+            cosine_area = raster_weights is None
         self.cosine_area = cosine_area
 
         # Initialize the cache
@@ -249,9 +270,19 @@ class GridWeights:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            # Generate the cells geometry by buffering the border points
+            # Generate the cells geometry from the border points. A square
+            # buffer would be wrong on a non-square grid (it leaves gaps along
+            # the wider axis and mis-sizes the cell that area_weight divides
+            # by), so build explicit rectangles instead.
             print("Generating cells...")
-            cells = border.buffer(self.grid.resolution / 2, cap_style=3)
+            pts = border.geometry
+            dx = self.grid.resolution_lon / 2
+            dy = self.grid.resolution_lat / 2
+            cells = gpd.GeoSeries(
+                shapely.box(pts.x - dx, pts.y - dy, pts.x + dx, pts.y + dy),
+                index=border.index,
+                crs=border.crs,
+            )
         border["geometry"] = cells
         return border
 
@@ -473,8 +504,12 @@ class GridWeights:
             plot_df[['latitude', 'longitude', wvar]],
             geometry=gpd.points_from_xy(plot_df.longitude, plot_df.latitude)
         )
-        # Buffer the points to create cell geometries
-        plot_df.geometry = plot_df.buffer(self.grid.resolution / 2, cap_style=3)
+        # Build cell geometries as rectangles. A square buffer would leave
+        # visible gaps between cells whenever the grid is non-square.
+        dx = self.grid.resolution_lon / 2
+        dy = self.grid.resolution_lat / 2
+        pts = plot_df.geometry
+        plot_df.geometry = shapely.box(pts.x - dx, pts.y - dy, pts.x + dx, pts.y + dy)
         # print(plot_df)
 
         # Plot the weights

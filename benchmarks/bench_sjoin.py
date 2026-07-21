@@ -14,7 +14,7 @@ import argparse, os, time, resource, gc
 import numpy as np, pandas as pd, geopandas as gpd
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHP = os.path.join(_REPO, "examples/notebooks/giovanni_example/usa_simple_noHI.shp")
+SHP = os.path.join(_REPO, "benchmarks/data/usa_simple_noHI.shp")
 
 
 def maxrss_mb():
