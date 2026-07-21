@@ -43,14 +43,17 @@ pip install "aggfly[cloud]"   # both
 ```python
 ds = af.dataset_from_path(
     "gs://cmip6/CMIP6/CMIP/NOAA-GFDL/GFDL-CM4/historical/r1i1p1f1/day/tas/gr1/v20180701/",
-    var="tas", engine="zarr", storage_options={"token": "anon"},
+    var="tas", storage_options={"token": "anon"},
     xycoords=("lon", "lat"), lon_is_360=True,
 )
 ```
 
-Passing an `gs://` or `s3://` path without the matching extra raises an error
-naming the one to install. Note that `engine="zarr"` is needed when the store's
-path does not end in `.zarr`, as is the case for Pangeo's CMIP6 collection.
+Passing a `gs://` or `s3://` path without the matching extra raises an error
+naming the one to install.
+
+Zarr stores are detected even when the path does not end in `.zarr` — as with
+Pangeo's CMIP6 collection above — by looking for zarr's root metadata. Pass
+`engine="zarr"` explicitly to skip that check.
 
 ## Developing aggfly (uv)
 

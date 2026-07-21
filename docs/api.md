@@ -60,8 +60,9 @@ and `lon_is_360`.
 
 `path` may point at object storage (`gs://`, `s3://`); pass credentials or
 `{"token": "anon"}` via `storage_options`, and install the matching extra
-(`pip install "aggfly[gcs]"`). Pass `engine="zarr"` explicitly when the store's
-path does not end in `.zarr`.
+(`pip install "aggfly[gcs]"`). Zarr stores are detected from the path, or by
+probing for zarr metadata when the path does not end in `.zarr`; `engine=` is
+honoured if you pass it.
 
 ### `zarr_from_path` / `dataset_to_zarr`
 
