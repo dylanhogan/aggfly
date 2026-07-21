@@ -25,7 +25,7 @@ def cli():
       aggfly validate config.yaml          # dry-run the config (no data read)
       aggfly run     config.yaml           # aggregate → panel
 
-    See CLI_PLAN.md for the config schema and the full command set.
+    See docs/cli.md for the config schema and the full command set.
     """
 
 

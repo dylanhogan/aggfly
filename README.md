@@ -1,291 +1,110 @@
-
 # aggfly: Efficient climate data aggregation
+
 [![PyPI version](https://badge.fury.io/py/aggfly.svg)](https://badge.fury.io/py/aggfly)
 
-NOTE: aggfly is still in development and may not be stable for new users. Please proceed with caution.
+> **NOTE:** aggfly is still in development and may not be stable for new users.
+> Please proceed with caution.
 
+`aggfly` is a Python package developed to facilitate and harmonize the temporal and
+spatial aggregation of gridded climate data. It performs linear and nonlinear
+aggregations of weather data across different time periods — degree days, bins,
+daily polynomials — and supports spatial aggregation by weighting gridded data
+according to administrative boundaries and local exposures such as human
+populations and crop distributions.
 
-## Overview: Why aggfly?
-
-`aggfly` is a Python package developed to facilitate and harmonize the temporal and spatial aggregation of gridded climate data. It is designed to perform linear and nonlinear aggregations of weather data across different time periods, such as calculating degree days and daily polynomials, providing a detailed analysis of climatic variations over time. Additionally, the package supports spatial aggregation by weighting gridded data according to administrative boundaries and local exposures like human populations and crop distributions.
-
-The package automates complex and memory-intensive geospatial operations, which are common challenges for researchers dealing with large climate datasets. This automation simplifies the process, making it more accessible for users who need to handle and analyze extensive climate data. `aggfly` offers a variety of functional forms for data analysis, including average, sum, min, max, degree days, bins, and polynomials. 
-
-aggfly is useful for researchers in various fields who study the impacts of weather and climate on other variables, such as human health, agriculture, and economic growth. 
-
-## Acknowledgements 
-
-I gratefully acknowledge the support and funding provided by the Climate & Environment Program at Private Enterprise Development in Low Income Countries (PEDL, CEPR), and stellar research assistance from Giovanni Brocca and Nick Silvis. Research assistance was funded by Professors Colmer, Porzio, and Rossi through their project "The Human (Capital) Side of Climate Change," which was financed by the International Growth Center (XXX-23020) and Columbia Business School. The funding and research assistance provided were instrumental in the development of this package. I sincerely thank them for their commitment to advancing research and innovation.
+The package automates complex and memory-intensive geospatial operations, which are
+common challenges for researchers dealing with large climate datasets. `aggfly` is
+useful for researchers studying the impacts of weather and climate on other
+variables, such as human health, agriculture, and economic growth.
 
 ## Installation
 
-### Required dependencies
-- Python 3.11.6-3.12.2
-
-### Instructions
-
-Since `aggfly` relies on several packages with version restrictions, we recommend installing the package inside a virtual environment, such as `conda` (see [instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) for the installation).
-
-1. Create your conda environment by running the following command from your terminal:
-
-```
-conda create --name aggfly-dev python==3.12.2 pip ipykernel
-conda activate aggfly-dev
-```
-
-with ```aggfly-dev``` being the name of the environment you will create. For other details on how to manage environments, check out the [conda documentation](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).   
-
-2. Use `pip` to install the package from PyPI:
-```
+```bash
 pip install aggfly
 ```
 
-### Jupyter
+Requires Python 3.11–3.13. Full instructions — including the uv-based development
+setup and Jupyter kernels — are in **[docs/installation.md](docs/installation.md)**.
 
-You may want to use aggfly to run batch jobs or in Jupyter sessions. In the case in which you experience issues when accessing the environment in Jupyter, try [this](https://ipython.readthedocs.io/en/latest/install/kernel_install.html#kernels-for-different-environments) to make the environment you have created available in Jupyter. In some of the cases, it will be sufficient to run the following commands:
+## Quickstart
 
+Three inputs: a **shapefile** of target regions, a **climate raster** to aggregate,
+and optionally a **secondary weights raster** (population, cropland).
+
+```python
+import numpy as np
+import aggfly as af
+
+# 1. Load regions and a sample raster layer
+georegions = af.georegions_from_path("counties.shp", regionid="GEOID")
+dataset = af.dataset_from_path(
+    "era5_2017.zarr", var="t2m",
+    georegions=georegions,
+    preprocess=lambda x: x - 273.15,     # Kelvin → Celsius
+)
+
+# 2. Compute weights (cached; reused across years)
+weights = af.weights_from_objects(dataset, georegions, project_dir="./proj")
+weights.calculate_weights()
+
+# 3. Transform and aggregate → a region-by-period panel
+df = af.aggregate_dataset(
+    dataset=dataset,
+    weights=weights,
+    tavg=[
+        ('aggregate', {'calc': 'mean', 'groupby': 'date'}),
+        ('transform', {'transform': 'power', 'exp': np.arange(1, 3)}),
+        ('aggregate', {'calc': 'sum', 'groupby': 'year'}),
+    ],
+    growing_dday=[
+        ('aggregate', {'calc': 'dd', 'groupby': 'date', 'ddargs': [10, 30, 0]}),
+        ('aggregate', {'calc': 'sum', 'groupby': 'year'}),
+    ],
+)
 ```
-conda activate aggfly-dev
-conda install ipykernel
-python -m ipykernel install --user --name aggfly-dev
-conda deactivate
-``` 
 
-to then be able start the Jupyter session from your terminal.  
-
-
-## Input datasets
-
-The three raw inputs to be used to obtain an aggregated dataset containing climatic information at a relatively coarser spatial and temporal level are:
-
-1. **Shapefile**: The shapefile containing the information on the boundaries of the target administrative regions. For example, a shapefile with the boundaries of world countries.
-2. **Climatic dataset**: The raster dataset with the information at the relatively fine level that you want to aggregate at a spatially and/or temprally coarser level. For example, an ERA5 raster data with the hourly average temperature for each 0.25x0.25 degrees grid cell for the whole world. 
-3. **(Optional) Secondary weights dataset**: The raster dataset containing the the information on the variable that you want to use to compute the weights that will be used to compute the weighted average of the climatic data over each administrative region.
+See the [Quickstart guide](docs/guide/quickstart.md) for a walkthrough of each step.
 
 ## Command-line interface
 
-The whole workflow below can also be driven from a YAML config file — no Python
-script required — via the `aggfly` command-line interface (`aggfly run config.yaml`).
-See **[docs/cli.md](docs/cli.md)** for the commands, the config schema, and runnable
-examples in [`examples/`](examples).
+The whole workflow can also be driven from a YAML config file — no Python script
+required:
 
-## Workflow
-
-We will here present the workflow with the main functionalities of the package. For a specific example application refer to the example notebook.
-
-To correctly aggregate the raster data containing climatic information at the grid cell level, you will need to follow three steps:
-
-1. Loading the shapefile containing the target administrative regions and the raster dataset to compute the area weights
-2. Computing the weights to be used in the aggregation
-3. Transforming and aggregating the climatic data spatially and temporally 
-
-Remember to set the ```project_dir``` at the start of your code, to avoid having to specify it in the inputs of every command:
-
-```
-project_dir = '/user/name/aggfly_repository'
+```bash
+aggfly info era5_2017.zarr --var t2m   # discover coords, calendar, lon convention
+aggfly validate config.yaml            # check the config, no data read
+aggfly run config.yaml                 # aggregate → panel
 ```
 
-### 1. Loading the shapefile and the raster dataset
+See the **[CLI reference](docs/cli.md)** and runnable configs in
+[`examples/`](examples/).
 
-The first step towards aggregating the climatic dataset is to load the shapefile containing the target administrative regions at the level of which you want to aggregate the climatic data with the ```georegions_from_path()``` function:
+## Documentation
 
-``` 
-georegions = af.georegions_from_path(
-    "~/data/shapefiles/county/cb_2018_us_county_500k.shp",
-    regionid='GEOID'
-)
-```
+| | |
+|---|---|
+| [Documentation home](docs/index.md) | Full table of contents. |
+| [Installation](docs/installation.md) | pip for users, uv for development. |
+| [Concepts](docs/concepts.md) | How the pipeline works and why weights matter. |
+| [Quickstart](docs/guide/quickstart.md) | End-to-end Python API walkthrough. |
+| [Weights](docs/guide/weights.md) | Area and secondary (population/crop) weighting. |
+| [Aggregation](docs/guide/aggregation.md) | The spec DSL: calcs, transforms, degree days, bins. |
+| [Execution & scaling](docs/guide/execution.md) | Dask backends and recipes by hardware. |
+| [Calendars](docs/guide/calendars.md) | CMIP6 and non-standard CF calendars. |
+| [CLI](docs/cli.md) | `info`, `validate`, `weights`, `run`. |
+| [API reference](docs/api.md) | The public Python API. |
 
-You now load a sample layer of the climatic raster dataset that you want to aggregate with the ```dataset_from_path()``` function. This will be used to compute the area weights - see the next paragraph for more details on weights:
+Worked examples live in [`examples/`](examples/) (CLI configs) and
+[`examples/notebooks/`](examples/notebooks/) (a US-county notebook).
 
-```
-# Open example dataset to construct weights
-dataset = af.dataset_from_path(
-    f"~/data/annual/tempPrecLand2017.zarr", 
-    var = 't2m',
-    name = 'era5',
-    georegions=georegions,
-    preprocess = lambda x: (x - 273.15),
-)
-dataset.da
-```
+## Acknowledgements
 
-Main arguments:
-- **var**: The selected variable to transform and aggregate.
-- **preprocess**: It is used to specify a function for processing the raw values of your data before they are aggregated. For instance, it can be used to convert degrees Kelvin to degrees Celsius or to shift every osbervation back by one hour.
-- **georegions**: The georegions object you have previously created.
-- **name**: The name you want to assign to this dataset.
-
-
-### 2. Computing the weights 
-
-We first start with a brief explanation of why weights are an important component of this aggregation procedure to then show how to compute them and the main options you can choose.
-
-#### Why are weights important?
-
-There are two categories of weights that you may use to spatially aggregate the climatic data:
-
-1. **Area weights** are the standard weights that we need to use, which consider the share of the area of an administrative that falls in a grid cell as the weight assigned to that cell. It is important to compute the weighted average of the climatic data over each administrative region, rather than the unweighted one, for two main reasons. First, the global grid cells have different dimension, since the longitude lines converge at the equator and, hence, the linear distance of longitude is larger at the equator and it converges to zero at the poles. Second, the border of some of our administrative regions may intersect some cells. In the latter case, we want the weight of the intersected cell to be proportional to the area covered by the administrative region.
-2. **Secondary weights** are useful when we are interested in the average climate experienced by a particular subject. For example, if we are studying the effect of climate on human health, it may be appropriate to weight the climatic data by the number of humans that live in a grid cell. Alternatively, if we are interested in the responses of agricultural productivity to climate change, we may want to use the share of land covered by crops - or a specific crop - to compute the weight of each grid cell weight.
-
-#### Implementation without secondary weights
-
-This is the standard case, in which area weights are computed from the ```weights_from_objects``` without specifying any ```secondary weights``` in the options.
-
-```
-# Calculate area weights.
-weights = af.weights_from_objects(
-    dataset,
-    georegions,
-    project_dir=project_dir
-)
-weights.calculate_weights()
-```
-
-#### Implementation with secondary weights
-
-To calculate weights based on a secondary variable, we first load the secondary variable dataset with one among ```secondary_weights_from_path```, ```pop_weights_from_path``` and ```crop_weights_from_path```. Then, we compute the weights through the ```weights_from_objects``` specifying ```secondary weights``` in the options.
-
-```
-secondary_weights = af.pop_weights_from_path("~/data/population/landscan-global-2016.tif")
-
-# Calculate weights.
-weights = af.weights_from_objects(
-    dataset,
-    georegions,
-    secondary_weights=secondary_weights,
-    project_dir=project_dir
-)
-weights.calculate_weights()
-```
-
-```weights``` will now contain the array of weights to be used for the aggregation.
-
-Main arguments:
-- **georegions**: The georegions object you have previously created.
-- **dataset**: The layer of the dataset that is used to obtain the informations on the structure of the grid in order to compute the weights.
-- **project_dir**: The project directory.
-- **secondary_weights**: the ```secondary_weights``` object you have previously created.
-
-### 3. Transforming and aggregating 
-
-You first load the full dataset that you want to aggregate using the same procedure as in step 1 - when you however loaded just a sample layer of the dataset - and you then finally aggregate it with the ```aggregate_dataset()``` function.
-
-```
-dataset = af.dataset_from_path(
-    f"~/data/annual/tempPrecLand{year}.zarr", 
-    var = 't2m',
-    name = 'era5',
-    georegions=georegions,
-    preprocess = lambda x: (x - 273.15)
-)
-
-output_df = af.aggregate_dataset(
-    dataset=dataset, 
-    weights=weights,
-    tavg = [
-        ('aggregate', {'calc':'mean', 'groupby':'date'}),
-        ('transform', {'transform':'power', 'exp':np.arange(1,2)}),
-        ('aggregate', {'calc':'sum', 'groupby':'year'})
-    ],
-    bins= [
-        ('aggregate', {'calc':'mean', 'groupby':'date'}),
-        ('aggregate', {'calc':'bins', 'groupby':'year', 'ddargs':[[25,99,0],[30,99,0]]})
-    ],
-    growing_dday = [
-        ('aggregate', {'calc':'dd', 'groupby':'date', 'ddargs':[10,30,0]}),
-        ('aggregate', {'calc':'sum', 'groupby':'year'}),
-    ],
-    heating_dday = [
-        ('aggregate', {'calc':'dd', 'groupby':'date', 'ddargs':[-99,20,1]}),
-        ('aggregate', {'calc':'sum', 'groupby':'year'}),
-    ]
-)
-```
-
-Notice that the function will first compute the aggregation across time in the way described by the lists of transformations specified in the arguments.
-
-Main arguments:
-- **dataset**: The complete raster that you have just loaded, which contains the gridded data you want to aggregate.
-- **georegions**: The georegions object you have previously created.
-- **weights**: The weights object you have defined, which is used to apply spatial weighting to the gridded data.
-- **agg_dict**: A dictionary containing the arguments for creating TemporalAggregator objects. The keys of the dictionary are names, and the values are a list of either tuples or TemporalAggregator objects. If the list contains tuples, use them as arguments to instantiate a temporal aggregator.
-
-
-Available transformations include:
-
-- **mean** Computes the average value of the within the time period specified by ```groupby```.
-- **min** Computes the minimum value within the time period.
-- **max**: Computes the maximum value within the time period.
-- **sum**: Computes the sum over the time period.
-- **dd** (Degree Days): Calculates degree days, which are a measure of heating or cooling. It sums the number of degrees that a temperature is above (cooling) or below (heating) a base temperature.
-- **bin**: Divides the data into bins based on specified thresholds, counting occurrences within those bins.
-- **exp** (Exponentiation): Computes the values raised to the specified powers, creating polynomial transformations of the data.
-
-For a more detailed application of the aggregation, refer to the example notebook.
-
-## Execution & scaling
-
-aggfly is **execution-backend-agnostic**: aggregation runs on whatever [Dask](https://www.dask.org/) scheduler or distributed client is active in your session, and falls back to Dask's threaded scheduler when none is. You choose the backend to fit your hardware; **the results are identical across backends — only the speed changes.**
-
-This matters because the temporal pipeline is usually **read-bound**, and the fastest way to read depends entirely on your storage. There is no universally best default, so aggfly does not guess — it simply uses the client you provide.
-
-Two independent knobs:
-
-- **`engine=`** picks the *temporal kernel*: `"auto"` (default), `"numba"`, or `"dask"`. See the numba engine notes above.
-- **the active Dask client** picks *how tasks execute* (threads, processes, or a cluster). Set it once before you aggregate.
-
-### Recipes by hardware
-
-**Laptop / single disk (HDD or SSD) — do nothing.** The default threaded scheduler is correct and needs no setup. On a single spinning disk, sequential reads are actually optimal, so leaving concurrency low is the right choice.
-
-```python
-df = af.aggregate_dataset(dataset=dataset, weights=weights, tavg=[...])   # threaded, zero config
-```
-
-**Fat single node (many cores, lots of RAM) — start a process cluster.** Warm/cached reads are serialized by the GIL under the threaded scheduler; separate worker processes read in parallel. Start a client first and aggfly will use it automatically:
-
-```python
-client = af.start_dask_client(n_workers=16, threads_per_worker=1)
-df = af.aggregate_dataset(dataset=dataset, weights=weights, tavg=[...])
-af.shutdown_dask_client()
-```
-
-`start_dask_client` caps numba to one thread per worker by default (`cap_numba_threads=1`) so `n_workers` × per-core numba threads don't oversubscribe the machine — the numba kernels get their parallelism from Dask fanning spatial blocks across workers.
-
-**HPC (multi-node + parallel filesystem) — bring your own cluster.** Use the standard [`dask-jobqueue`](https://jobqueue.dask.org/) tooling; aggfly needs no HPC-specific configuration and does not depend on `dask-jobqueue`:
-
-```python
-from dask_jobqueue import SLURMCluster
-from dask.distributed import Client
-cluster = SLURMCluster(cores=16, memory="64GB", ...)
-cluster.scale(jobs=8)
-client = Client(cluster)
-df = af.aggregate_dataset(dataset=dataset, weights=weights, tavg=[...])
-```
-
-**Cloud / object storage** — point `dataset_from_path` at an object-store-backed Zarr and use a distributed client; the same pattern applies.
-
-> **Note:** whether opening multiple files at once or using more worker processes *helps* depends on your storage serving parallel reads (SSD/NVMe, striped/parallel filesystems, and object stores benefit; a single spinning disk does not). Match the client to the hardware.
-
-## Calendars (CMIP6 & climate-model output)
-
-Climate-model output (CMIP6/CMIP5) often uses non-standard CF calendars — `noleap`/`365_day` (never a Feb 29), `360_day` (every month 30 days, so a valid "Feb 30"), etc. These can't be represented as NumPy `datetime64`, so xarray loads them as `cftime` objects.
-
-**aggfly supports these out of the box and preserves the model calendar.** Both temporal engines (`"dask"` and `"numba"`) group cftime time axes correctly, and the output panel carries the model-calendar timestamps (e.g. a `2000-02-30` label on a 360-day calendar). Loading via `dataset_from_path` preserves the calendar automatically; `date`/`month`/`year` groupings all work.
-
-```python
-ds = af.dataset_from_path("cmip6_tas.zarr", var="tas", timecoord="time", lon_is_360=True,
-                          preprocess=lambda x: x - 273.15)
-df = af.aggregate_dataset(dataset=ds, weights=weights,
-        tavg=[('aggregate', {'calc': 'mean', 'groupby': 'month'})])   # months are model months
-```
-
-Two things to know:
-
-- **`groupby='week'` is not available on non-standard calendars** — cftime has no weekly offset (a "week" is undefined on a 360-day calendar), so aggfly raises a clear error for both engines. Use `date`/`month`/`year` instead.
-- **Comparing model calendars to real dates is a modeling decision.** A 360-day "year" is 360 model-days, not 365.25, and model days don't map 1:1 to real calendar dates — so joining a 360-day/noleap panel to real-world (Gregorian) data needs care. If you want a standard-calendar axis (lossy — drops Feb 29 / spreads 360→365), convert *before* aggregating with xarray's `convert_calendar`, choosing the `align_on` policy yourself:
-
-```python
-ds.da = ds.da.convert_calendar("standard", align_on="date")   # your choice; not done silently
-```
+I gratefully acknowledge the support and funding provided by the Climate &
+Environment Program at Private Enterprise Development in Low Income Countries
+(PEDL, CEPR), and stellar research assistance from Giovanni Brocca and Nick Silvis.
+Research assistance was funded by Professors Colmer, Porzio, and Rossi through their
+project "The Human (Capital) Side of Climate Change," which was financed by the
+International Growth Center (XXX-23020) and Columbia Business School. The funding
+and research assistance provided were instrumental in the development of this
+package. I sincerely thank them for their commitment to advancing research and
+innovation.

@@ -62,6 +62,8 @@ A single `dd`/`bins` step with multiple `ddargs` (`multi_dd`) fans one variable 
 
 ## Notes
 
-- `notebooks/` contains example workflows (`run_t2m_us-counties_example.ipynb`, `giovanni_example/`) and scratch/experimental scripts — these are not part of the package and are not tested.
+- **Documentation layout** (reorganized 2026-07): `README.md` is a slim landing page (overview, install, quickstart, links). All prose docs live under `docs/` — `index.md` (TOC), `installation.md`, `concepts.md`, `guide/{quickstart,weights,aggregation,execution,calendars}.md`, `cli.md`, `api.md`. Update the relevant `docs/` page, not the README, when behavior changes.
+- `internal/` holds historical planning docs (`cli-plan.md`, `backend-plan.md`, `modernization-baseline.md`) — design records, not user docs and not necessarily current.
+- `examples/` holds runnable CLI configs and, under `examples/notebooks/`, the curated example workflows (`run_t2m_us-counties_example.ipynb`, `giovanni_example/`). These are not part of the package and are not tested. `benchmarks/bench_{sjoin,weights}.py` read the shapefile from `examples/notebooks/giovanni_example/`.
+- `notebooks/` is scratch/experimental only.
 - `aggfly/aggregate/z_old/` and `aggfly/scratch.py` are dead/legacy code; don't rely on them.
-- The README documents the intended user-facing workflow with fuller examples; several sections there are marked TODO/incomplete.
