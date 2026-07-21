@@ -116,4 +116,6 @@ to a list of steps applied in order. That mini-language is documented in full in
 - [Aggregation](aggregation.md) — the full spec DSL: calcs, transforms, bins
 - [Execution & scaling](execution.md) — pick a Dask backend to match your hardware
 - [Calendars](calendars.md) — CMIP6 and non-standard calendars
+- [`quickstart_public_data.ipynb`](../../examples/notebooks/quickstart_public_data.ipynb) — a
+  runnable version of this page that downloads its own public data (no local files needed)
 - [`examples/notebooks/`](../../examples/notebooks/) — a worked county-level example

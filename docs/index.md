@@ -35,6 +35,9 @@ population or cropland.
 
 - [`examples/`](../examples/) — runnable CLI configs (area-weighted and
   population-weighted).
+- [**`quickstart_public_data.ipynb`**](../examples/notebooks/quickstart_public_data.ipynb) — a
+  standalone notebook that downloads everything it needs (~25 MB of public data, no accounts or
+  local files) and runs the full pipeline, comparing area- vs population-weighted results.
 - [`examples/notebooks/`](../examples/notebooks/) — a worked US-county example.
 
 ## Two ways to use aggfly
