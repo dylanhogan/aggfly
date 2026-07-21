@@ -37,7 +37,7 @@ class GridWeights:
         project_dir: Optional[str] = None,
         simplify: Optional[Union[float, int]] = None,
         default_to_area_weights: bool = True,
-        cosine_area: bool = True,
+        cosine_area: Optional[bool] = None,
         verbose: bool = True,
     ):
         """
@@ -61,7 +61,22 @@ class GridWeights:
             Whether to default to area weights (default is True).
         cosine_area : bool, optional
             Whether to correct area weights for cell-area distortion by latitude
-            (multiply by cos(latitude)). Default is True.
+            (multiply by cos(latitude)).
+
+            Defaults to None, meaning "choose automatically": True for area-only
+            weights, False when ``raster_weights`` is given.
+
+            The correction converts a cell's extent in degrees into physical
+            area, which is what area weighting wants. A secondary raster such as
+            LandScan or WorldPop already reports how many people (or hectares)
+            are *in* each cell, so a poleward cell being physically smaller is
+            already reflected in its value; applying cos(latitude) on top of it
+            counts the same distortion twice and biases regions that span a wide
+            range of latitudes.
+
+            Set it explicitly to override: pass True if your secondary raster is
+            a density per unit *physical* area (e.g. people per km squared),
+            where the conversion is still required.
         verbose : bool, optional
             Whether to print verbose output (default is True).
         weights : GeoDataFrame
@@ -79,6 +94,11 @@ class GridWeights:
         self.weights = None
         self.nonzero_weight_coords = None
         self.nonzero_weight_mask = None
+        # Resolve the automatic default. Store the resolved boolean so it lands
+        # in cdict() and therefore in the cache key: the two modes must not
+        # share a cache entry.
+        if cosine_area is None:
+            cosine_area = raster_weights is None
         self.cosine_area = cosine_area
 
         # Initialize the cache
