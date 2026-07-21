@@ -60,14 +60,6 @@ reads all attributes but no geometry, so it is far cheaper than a full read.
 Also flags two things that will otherwise bite later: a missing CRS, and
 longitudes on a 0–360 rather than −180–180 frame.
 
-### `georegions_from_name`
-
-```python
-af.georegions_from_name(name="usa", region_list=None) -> GeoRegions
-```
-
-Load a bundled region set by name.
-
 ### `GeoRegions`
 
 Wraps a GeoDataFrame of target regions.
@@ -131,9 +123,6 @@ from a `Dataset` and used for weight computation.
 af.weights_from_objects(
     clim, georegions,
     secondary_weights=None,
-    wtype=None, name=None,
-    crop="corn", feed=None,
-    write=False,
     project_dir=None,
     **kwargs,
 ) -> GridWeights

@@ -20,7 +20,6 @@ from copy import deepcopy
 from ..regions import GeoRegions
 from ..dataset import Dataset, Grid, array_lon_to_360
 from . import CropWeights, PopWeights
-from . import crop_weights, pop_weights
 from ..utils import *
 from ..cache import *
 from ..aggregate import is_distributed, shutdown_dask_client, start_dask_client
@@ -530,11 +529,6 @@ def weights_from_objects(
     clim: Dataset,
     georegions: GeoRegions,
     secondary_weights: Optional[Union[CropWeights, PopWeights]] = None,
-    wtype: str = None,
-    name: str = None,
-    crop: Optional[str] = "corn",
-    feed: Optional[str] = None,
-    write: bool = False,
     project_dir: Optional[str] = None,
     **kwargs,
 ) -> GridWeights:
@@ -548,17 +542,9 @@ def weights_from_objects(
     georegions : GeoRegions
         The georegions data.
     secondary_weights : Union[CropWeights, PopWeights], optional
-        The secondary weights data (default is None).
-    wtype : str, optional
-        The weight type (default is "crop").
-    name : str, optional
-        The name (default is "cropland").
-    crop : str, optional
-        The crop type (default is "corn").
-    feed : str, optional
-        The feed type, rainfed, irrigated, or total (default is None).
-    write : bool, optional
-        Whether to write the data (default is False).
+        The secondary weights data (default is None). Build one with
+        ``pop_weights_from_path`` / ``crop_weights_from_path`` /
+        ``secondary_weights_from_path``.
     project_dir : str, optional
         The project directory (default is None).
 
@@ -570,25 +556,6 @@ def weights_from_objects(
     if clim.lon_is_360:
         clim = deepcopy(clim)
         clim.rescale_longitude()
-
-    if secondary_weights is None:
-        if wtype == "crop":
-            if crop is not None:
-                secondary_weights = crop_weights.from_name(
-                    name=name,
-                    crop=crop,
-                    feed=feed,
-                    write=write,
-                    project_dir=project_dir,
-                )
-            else:
-                raise NotImplementedError
-        elif wtype == "pop":
-            secondary_weights = pop_weights.from_name(
-                name=name, write=write, project_dir=project_dir
-            )
-        else:
-            secondary_weights = None
 
     return GridWeights(
         clim.grid, georegions, secondary_weights, project_dir=project_dir, **kwargs

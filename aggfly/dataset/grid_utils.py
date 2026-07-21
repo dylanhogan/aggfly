@@ -152,43 +152,6 @@ def prism_grid_centroids(datatype="array", chunks=30):
     return centroids, np.unique(longitude), np.unique(latitude) # Return the centroids and unique longitudes and latitudes
 
 
-@lru_cache(maxsize=None)
-def era5l_grid_centroids(datatype="array", chunks=30, usa=False):
-    """
-    Generates the centroids for the ERA5-Land grid with specific bounds and resolution.
-
-    Parameters:
-    -----------
-    datatype: str, optional
-        The type of data structure to return ("array", "coords", "points", "dask", "xarray", or "empty"). Default is "array".
-    chunks: int, optional
-        The size of chunks for Dask arrays. Default is 30.
-    usa: bool, optional
-        Whether to select data only for the USA. Default is False.
-
-    Returns:
-    --------
-    centroids:
-        The centroids in the specified data structure.
-    """
-    # Open the ERA5 data
-    example = "/home3/dth2133/data/ERA5"
-    clim = xr.open_zarr(example).t2m[:, :, 0, 0, 0]
-    # clim.coords['longitude'] = (clim.coords['longitude'] + 180) % 360 - 180
-    # with dask.config.set(**{'array.slicing.split_large_chunks': True}):
-    #     clim = clim.sortby(clim.longitude)
-    # Optionally filter for USA region
-    if usa:
-        clim = clim.sel(longitude=slice(-126, -67), latitude=slice(50, 24))
-    # Return coordinates or reformatted grid based on datatype
-    if datatype == "coords":
-        return clim.longitude.values, clim.latitude.values
-    else:
-        longitude, latitude = np.meshgrid(clim.longitude.values, clim.latitude.values)
-        centroids = reformat_grid(longitude, latitude, datatype, chunks)
-        return centroids
-
-
 def reformat_grid(longitude, latitude, datatype="array", chunks=30):
     """
     Reformats grid coordinates into different data structures.

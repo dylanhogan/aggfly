@@ -738,20 +738,3 @@ def dataset_from_path(
         time_fix=time_fix,
         name=name,
     )
-
-
-def from_name(name, var, chunks="auto", **kwargs):
-    # if name == 'prism':
-    #
-    path, engine, preprocess = get_path(name)
-    clim = dataset_from_path(path, var, engine, preprocess, name, chunks, **kwargs)
-    return clim
-
-
-def get_path(name):
-    if name == "era5l":
-        return ("/home3/dth2133/data/annual/*.zarr", "zarr", preprocess_era5l)
-    elif name == "era5l_diag":
-        return ("/home3/dth2133/data/ERA5", "zarr", None)
-    else:
-        raise NotImplementedError

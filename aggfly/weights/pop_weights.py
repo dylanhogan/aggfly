@@ -83,41 +83,6 @@ def pop_weights_from_path(
     return weights
 
 
-def from_name(name="landscan", grid=None, write=False, project_dir=None, crs=None):
-    """
-    Create PopWeights from a predefined name.
-
-    Parameters
-    ----------
-    name : str
-        The name of the population dataset (default is 'landscan').
-    grid : Grid, optional
-        The grid to which the weights will be rescaled (default is None).
-    write : bool, optional
-        A flag indicating whether to write the weights to a file (default is False).
-    project_dir : str, optional
-        The project directory (default is None).
-    crs : str, optional
-        The coordinate reference system to use (default is None).
-
-    Returns
-    -------
-    PopWeights
-        The created PopWeights object.
-    """
-    if name == "landscan":
-        # Define the path to the LandScan dataset
-        # path = "/home3/dth2133/data/cropland/2021_crop_mask.zarr"
-        path = "/home3/dth2133/data/population/landscan-global-2016.tif"
-        # preprocess =
-        # crs = 'EPSG:5070'
-    else:
-        raise NotImplementedError
-    return pop_weights_from_path(
-        path, grid=grid, write=write, name=name, project_dir=project_dir, crs=crs
-    )
-
-
 def open_pop_raster(path, preprocess=None, **kwargs):
     """
     Open a population raster file.
