@@ -1040,3 +1040,60 @@ def test_remote_backend_check_silent_when_installed(monkeypatch):
     monkeypatch.setattr(ds_mod.importlib.util, "find_spec", lambda name, *a, **k: object())
     for path in ["gs://b/x.zarr", "s3://b/x.zarr", "gcs://b/x.zarr"]:
         ds_mod._require_remote_backend(path)
+
+
+# ---------------------------------------------------------------------------
+# Zarr backend detection
+#
+# The engine used to be chosen with `".zarr" in path`. Pangeo's CMIP6 stores
+# live at paths like gs://cmip6/.../v20180701/ with no ".zarr" anywhere, so they
+# were sent to the NetCDF backend and failed. Detection now falls back to
+# probing for zarr's root metadata.
+# ---------------------------------------------------------------------------
+
+def test_looks_like_zarr_by_name_without_touching_the_filesystem():
+    from aggfly.dataset.dataset import _looks_like_zarr
+    # Conclusive from the name alone -- these must not require the path to exist
+    assert _looks_like_zarr("/nonexistent/x.zarr")
+    assert _looks_like_zarr("s3://bucket/store.zarr/")
+    for p in ["/nonexistent/f.nc", "/nonexistent/F.NC4", "/nonexistent/x.tif",
+              "/nonexistent/y.grib2", "/nonexistent/z.hdf5"]:
+        assert not _looks_like_zarr(p), p
+
+
+def test_looks_like_zarr_detects_a_store_with_no_zarr_suffix(tmp_path):
+    from aggfly.dataset.dataset import _looks_like_zarr
+    ds = xr.Dataset({"t2m": (("time",), np.arange(3.0))},
+                    coords={"time": pd.date_range("2000-01-01", periods=3)})
+    store = tmp_path / "storedir"          # deliberately not named *.zarr
+    ds.to_zarr(store)
+    assert _looks_like_zarr(str(store))
+    assert not _looks_like_zarr(str(tmp_path / "does_not_exist"))
+
+
+def test_dataset_from_path_opens_zarr_without_suffix_or_engine(tmp_path):
+    ds = xr.Dataset(
+        {"t2m": (("time", "latitude", "longitude"), np.ones((3, 4, 4)))},
+        coords={"time": pd.date_range("2000-01-01", periods=3),
+                "latitude": np.arange(0, 4.0) + 0.5,
+                "longitude": np.arange(0, 4.0) + 0.5},
+    )
+    store = tmp_path / "storedir"
+    ds.to_zarr(store)
+    out = af.dataset_from_path(str(store), var="t2m")
+    assert out.da.sizes["time"] == 3
+
+
+def test_dataset_from_path_accepts_explicit_engine_on_a_zarr_path(tmp_path):
+    # Passing engine= alongside a *.zarr path used to raise
+    # TypeError: got multiple values for keyword argument 'engine'
+    ds = xr.Dataset(
+        {"t2m": (("time", "latitude", "longitude"), np.ones((3, 4, 4)))},
+        coords={"time": pd.date_range("2000-01-01", periods=3),
+                "latitude": np.arange(0, 4.0) + 0.5,
+                "longitude": np.arange(0, 4.0) + 0.5},
+    )
+    store = tmp_path / "s.zarr"
+    ds.to_zarr(store)
+    out = af.dataset_from_path(str(store), var="t2m", engine="zarr")
+    assert out.da.sizes["time"] == 3

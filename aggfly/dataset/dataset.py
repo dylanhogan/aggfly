@@ -574,6 +574,47 @@ _REMOTE_BACKENDS = {
 }
 
 
+# Suffixes that are definitely not a zarr store. Probing these would cost a
+# pointless stat call on every ordinary NetCDF read.
+_NON_ZARR_SUFFIXES = (
+    ".nc", ".nc4", ".netcdf", ".cdf", ".h5", ".hdf5",
+    ".grib", ".grb", ".grib2", ".tif", ".tiff",
+)
+
+# Metadata objects that mark the root of a zarr store: v3, v2-consolidated, and
+# plain v2 group/array respectively.
+_ZARR_MARKERS = ("zarr.json", ".zmetadata", ".zgroup", ".zarray")
+
+
+def _looks_like_zarr(path: str, storage_options: Optional[Dict] = None) -> bool:
+    """
+    Best-effort detection of a zarr store.
+
+    The name alone is not enough: Pangeo's CMIP6 collection lives at paths like
+    ``gs://cmip6/.../v20180701/`` with no ``.zarr`` anywhere, so a substring
+    check sends them to the NetCDF backend. When the name is inconclusive, look
+    for zarr's root metadata instead. Any failure here is non-fatal -- we simply
+    fall back to xarray's own engine selection.
+    """
+    if not isinstance(path, str):
+        return False
+    lowered = path.lower().rstrip("/")
+    if ".zarr" in lowered:
+        return True
+    if lowered.endswith(_NON_ZARR_SUFFIXES):
+        return False
+    try:
+        import fsspec
+
+        fs, _, paths = fsspec.get_fs_token_paths(
+            path, storage_options=storage_options or {}
+        )
+        root = paths[0].rstrip("/")
+        return any(fs.exists(f"{root}/{marker}") for marker in _ZARR_MARKERS)
+    except Exception:
+        return False
+
+
 def _require_remote_backend(path: Union[str, List[str]]) -> None:
     """Raise a clear error if `path` needs an object-store backend that is missing."""
     paths = path if isinstance(path, (list, tuple)) else [path]
@@ -668,11 +709,15 @@ def dataset_from_path(
                 preprocess = None
 
         else:
-            # Load a single file, choosing the engine based on file extension
-            if ".zarr" in path:
-                array = xr.open_dataset(path, engine='zarr', chunks=chunks, **kwargs)
-            else:
+            # Load a single file. An explicit engine= always wins; otherwise
+            # detect a zarr store (by name, else by probing for its metadata).
+            engine = kwargs.pop("engine", None)
+            if engine is None and _looks_like_zarr(path, kwargs.get("storage_options")):
+                engine = "zarr"
+            if engine is None:
                 array = xr.open_dataset(path, chunks=chunks, **kwargs)
+            else:
+                array = xr.open_dataset(path, engine=engine, chunks=chunks, **kwargs)
         
         if preprocess_at_load:
             # Apply preprocessing function at load time if specified
