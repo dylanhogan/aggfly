@@ -37,6 +37,12 @@ def load_dataset(config, path, georegions):
     kwargs = {}
     if config.chunks is not None:
         kwargs["chunks"] = config.chunks
+    # Object-store credentials and an explicit reader backend, forwarded to
+    # xarray. Without these a config could not point at gs:// or s3://.
+    if config.storage_options is not None:
+        kwargs["storage_options"] = config.storage_options
+    if config.reader_engine is not None:
+        kwargs["engine"] = config.reader_engine
     return af.dataset_from_path(
         path,
         var=config.var,

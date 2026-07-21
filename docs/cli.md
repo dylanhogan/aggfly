@@ -121,6 +121,8 @@ dataset:
   time_sel: null                # optional time slice
   chunks: {time: 24, latitude: -1, longitude: -1}
   clip_to_regions: true         # clip raster to region extent (read optimization; see note)
+  # engine: zarr                # force the reader backend (usually auto-detected)
+  # storage_options: {token: anon}   # credentials for gs:// / s3:// paths
 
 # --- 3. weights --------------------------------------------------------
 weights:
@@ -193,6 +195,32 @@ When true (default), the raster is clipped to the regions' bounding extent as it
 loads — a read-reduction that **never changes results** (weights select the
 relevant cells regardless). Disable it for regions that wrap the antimeridian in
 the 0–360 convention, where the extent clip is ill-defined.
+
+### Reading from object storage
+
+`dataset.path` may point at a cloud store. `storage_options` is forwarded
+verbatim to xarray's fsspec backend, so anything that backend accepts works —
+`{token: anon}` for public buckets, or credentials for private ones. Install the
+matching extra (`pip install "aggfly[gcs]"` or `"aggfly[s3]"`).
+
+```yaml
+dataset:
+  path: gs://cmip6/CMIP6/CMIP/NOAA-GFDL/GFDL-CM4/historical/r1i1p1f1/day/tas/gr1/v20180701/
+  var: tas
+  xycoords: [lon, lat]
+  lon_is_360: true
+  engine: zarr                  # needed when the path has no .zarr in it
+  storage_options: {token: anon}
+```
+
+`aggfly validate` prints which `storage_options` keys are set but **never their
+values**, so a config carrying a token can be validated without leaking it into
+logs. Note that the config file itself holds the credential in plain text —
+prefer `{token: anon}` for public data, or a backend that reads ambient
+credentials (e.g. `GOOGLE_APPLICATION_CREDENTIALS`), over pasting secrets here.
+
+`dataset.engine` is a separate knob from `aggregate.engine`: the former picks
+xarray's *reader* backend, the latter the *temporal* kernel.
 
 ## Execution & scaling
 
