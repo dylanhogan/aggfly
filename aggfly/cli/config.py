@@ -1,7 +1,7 @@
 """Config loading, validation, and normalization for the aggfly CLI.
 
 A config file is YAML that mirrors the four pipeline stages plus job control (see
-``CLI_PLAN.md``). This module is deliberately **pure** — it parses and validates
+``internal/cli-plan.md``). This module is deliberately **pure** — it parses and validates
 the config and normalizes it into typed dataclasses, but does no I/O against the
 climate data and imports nothing from dask. That keeps ``aggfly validate`` fast
 and the whole layer unit-testable without fixtures.

@@ -36,7 +36,12 @@ dependencies = [
 aggfly = "aggfly.cli.main:cli"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+    "gcsfs>=2026.7.0",
+    "ipykernel>=7.3.0",
+    "pip>=26.1.2",
+    "pytest>=8.0",
+]
 
 [build-system]
 requires = ["hatchling"]
