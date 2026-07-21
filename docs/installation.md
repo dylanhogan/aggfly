@@ -28,6 +28,30 @@ pip install aggfly
 Installing the package also puts an `aggfly` executable on your `PATH` — see the
 [CLI reference](cli.md).
 
+### Reading from cloud object storage
+
+aggfly can open Zarr stores directly from object storage, but the backend that
+talks to each service is an optional extra — `gcsfs` alone pulls in around 38
+packages that a user reading local files never needs:
+
+```bash
+pip install "aggfly[gcs]"     # Google Cloud Storage  (gs:// , gcs://)
+pip install "aggfly[s3]"      # Amazon S3             (s3://)
+pip install "aggfly[cloud]"   # both
+```
+
+```python
+ds = af.dataset_from_path(
+    "gs://cmip6/CMIP6/CMIP/NOAA-GFDL/GFDL-CM4/historical/r1i1p1f1/day/tas/gr1/v20180701/",
+    var="tas", engine="zarr", storage_options={"token": "anon"},
+    xycoords=("lon", "lat"), lon_is_360=True,
+)
+```
+
+Passing an `gs://` or `s3://` path without the matching extra raises an error
+naming the one to install. Note that `engine="zarr"` is needed when the store's
+path does not end in `.zarr`, as is the case for Pangeo's CMIP6 collection.
+
 ## Developing aggfly (uv)
 
 The repository uses [uv](https://docs.astral.sh/uv/) for dependency management

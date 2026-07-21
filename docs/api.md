@@ -58,6 +58,11 @@ clips the raster to the region extent as a read optimization.
 Use `aggfly info <path>` to discover the right values for `xycoords`, `timecoord`,
 and `lon_is_360`.
 
+`path` may point at object storage (`gs://`, `s3://`); pass credentials or
+`{"token": "anon"}` via `storage_options`, and install the matching extra
+(`pip install "aggfly[gcs]"`). Pass `engine="zarr"` explicitly when the store's
+path does not end in `.zarr`.
+
 ### `zarr_from_path` / `dataset_to_zarr`
 
 ```python

@@ -2,6 +2,7 @@
 # It includes methods for initializing the dataset, performing preprocessing, clipping data to specific regions,
 # computing the data array, and applying operations like power and interaction with another dataset.
 
+import importlib.util
 from copy import deepcopy
 from typing import Callable, Tuple, Union, List, Dict, Any, Optional
 import numpy as np
@@ -562,6 +563,35 @@ def _interact(array, inter):
     return np.multiply(array, inter)
 
 
+# Object-store URL schemes and the fsspec backend each one needs. aggfly never
+# imports these itself -- xarray -> zarr -> fsspec dispatches on the scheme --
+# so a missing backend otherwise surfaces as an opaque error from deep inside
+# fsspec. Checking up front lets us name the extra that fixes it.
+_REMOTE_BACKENDS = {
+    "gs": ("gcsfs", "gcs"),
+    "gcs": ("gcsfs", "gcs"),
+    "s3": ("s3fs", "s3"),
+}
+
+
+def _require_remote_backend(path: Union[str, List[str]]) -> None:
+    """Raise a clear error if `path` needs an object-store backend that is missing."""
+    paths = path if isinstance(path, (list, tuple)) else [path]
+    for p in paths:
+        if not isinstance(p, str) or "://" not in p:
+            continue
+        scheme = p.split("://", 1)[0].lower()
+        entry = _REMOTE_BACKENDS.get(scheme)
+        if entry is None:
+            continue
+        module, extra = entry
+        if importlib.util.find_spec(module) is None:
+            raise ImportError(
+                f"Reading {scheme}:// paths requires the '{module}' package, which is "
+                f'not installed. Install it with:  pip install "aggfly[{extra}]"'
+            )
+
+
 def dataset_from_path(
     path: Union[str, List[str]],
     var: str,
@@ -619,7 +649,11 @@ def dataset_from_path(
         The loaded Dataset.
     """
     
-    with dask.config.set(**{"array.slicing.split_large_chunks": False}):  
+    # Fail fast with an actionable message if an object-store path needs a
+    # backend that isn't installed.
+    _require_remote_backend(path)
+
+    with dask.config.set(**{"array.slicing.split_large_chunks": False}):
         if "*" in path or type(path) is list:
         
                 # Load multiple files as a single dataset

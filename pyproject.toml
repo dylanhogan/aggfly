@@ -32,6 +32,16 @@ dependencies = [
     "pyarrow>=15.0",
 ]
 
+# Cloud object-store backends. aggfly never imports these directly: xarray ->
+# zarr -> fsspec dispatches on the URL scheme, so the right package merely has
+# to be installed. They are extras rather than hard dependencies because gcsfs
+# alone pulls in ~38 packages (grpcio, cryptography, aiohttp) that a user
+# reading local NetCDF/Zarr never needs.
+[project.optional-dependencies]
+gcs = ["gcsfs>=2024.1"]
+s3 = ["s3fs>=2024.1"]
+cloud = ["gcsfs>=2024.1", "s3fs>=2024.1"]
+
 [project.scripts]
 aggfly = "aggfly.cli.main:cli"
 

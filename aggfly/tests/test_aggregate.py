@@ -988,3 +988,55 @@ def test_equal_population_per_cell_weights_cells_equally():
     w.calculate_weights()
 
     assert np.isclose(_tavg(ds, w), float(lat.mean()), atol=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Object-store backends
+#
+# aggfly never imports gcsfs/s3fs itself: xarray -> zarr -> fsspec dispatches on
+# the URL scheme. A missing backend therefore surfaced as an opaque error from
+# deep inside fsspec, so dataset_from_path checks up front and names the extra
+# that fixes it.
+# ---------------------------------------------------------------------------
+
+def test_remote_backend_check_passes_local_paths():
+    from aggfly.dataset.dataset import _require_remote_backend
+    # No scheme, relative, list, and a scheme we don't map: all must pass through
+    for path in ["/data/x.zarr", "rel/path.nc", ["/a.nc", "/b.nc"],
+                 "file:///tmp/x.zarr", "http://example.com/x.nc"]:
+        _require_remote_backend(path)
+
+
+def test_remote_backend_check_names_the_extra(monkeypatch):
+    import importlib.util
+    from aggfly.dataset import dataset as ds_mod
+
+    real_find_spec = importlib.util.find_spec
+
+    def missing(name, *a, **k):
+        if name in ("gcsfs", "s3fs"):
+            return None
+        return real_find_spec(name, *a, **k)
+
+    monkeypatch.setattr(ds_mod.importlib.util, "find_spec", missing)
+
+    for path, module, extra in [
+        ("gs://bucket/x.zarr", "gcsfs", "gcs"),
+        ("gcs://bucket/x.zarr", "gcsfs", "gcs"),
+        ("s3://bucket/x.zarr", "s3fs", "s3"),
+    ]:
+        with pytest.raises(ImportError) as exc:
+            ds_mod._require_remote_backend(path)
+        msg = str(exc.value)
+        assert module in msg
+        assert f'aggfly[{extra}]' in msg
+
+
+def test_remote_backend_check_silent_when_installed(monkeypatch):
+    import importlib.util
+    from aggfly.dataset import dataset as ds_mod
+
+    # Pretend every backend is importable: no error regardless of scheme
+    monkeypatch.setattr(ds_mod.importlib.util, "find_spec", lambda name, *a, **k: object())
+    for path in ["gs://b/x.zarr", "s3://b/x.zarr", "gcs://b/x.zarr"]:
+        ds_mod._require_remote_backend(path)
