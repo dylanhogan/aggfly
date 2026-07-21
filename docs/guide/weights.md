@@ -143,6 +143,13 @@ raster — inflates that cell's weight, since the empty part is ignored rather t
 counted as unpopulated. Use a raster with explicit zeros if you want those areas
 to count as empty.
 
+A cell with **no** usable value at all — because it lies outside the raster's
+extent, or because its whole footprint is nodata — is given **zero weight**, and
+a warning reports how many cells that affected. If *no* cell in a region has a
+value, the region falls back to area weights (when `default_to_area_weights` is
+set, the default). Check that warning if a run reports more missing cells than
+you expect: it usually means the secondary raster does not cover your regions.
+
 ## Notes and constraints
 
 - `GridWeights` requires the grid to be in the −180–180 longitude convention

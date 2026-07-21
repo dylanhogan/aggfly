@@ -407,6 +407,32 @@ class GridWeights:
             on=["latitude", "longitude"]
         )
 
+        # A cell can end up without a raster value two ways: it falls outside the
+        # secondary raster's extent (so the left merge above yields NaN), or its
+        # whole footprint is nodata (so the rescaling average has nothing to
+        # average). Either way the cell carries none of the weighted quantity, so
+        # it contributes zero -- exactly like a cell that really is empty.
+        #
+        # Coercing here rather than letting the NaN through matters: `sum()` below
+        # skips NaN, so `total_weight` would come out finite and `zero_weight`
+        # False, while the cell's own `weight` stayed NaN. That NaN then poisoned
+        # the spatial sum and silently dropped the entire region from the panel.
+        n_missing = int((~np.isfinite(weights["raster_weight"])).sum())
+        if n_missing:
+            weights = weights.copy()
+            weights["raster_weight"] = (
+                weights["raster_weight"]
+                .replace([np.inf, -np.inf], np.nan)
+                .fillna(0)
+            )
+            warnings.warn(
+                f"{n_missing} of {len(weights)} cell-region pairs had no secondary "
+                "raster value (outside its extent, or entirely nodata) and were "
+                "given zero weight. A region with no valid cells at all falls back "
+                "to area weights when default_to_area_weights is set.",
+                stacklevel=2,
+            )
+
         # Total raster weight per region (a small per-region groupby; plain pandas)
         raster_total = (
             weights[["index_right", "raster_weight"]]
@@ -414,7 +440,8 @@ class GridWeights:
             .sum()
             .rename(columns={"raster_weight": "total_weight"})
         )
-        raster_total["zero_weight"] = raster_total.total_weight == 0 # Identify regions with zero total weight
+        # Non-finite totals count as zero so the fallback below still applies.
+        raster_total["zero_weight"] = ~(raster_total.total_weight > 0)
 
         # Merge total raster weights with the weights DataFrame
         tw = weights.merge(
