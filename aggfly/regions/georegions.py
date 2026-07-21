@@ -5,8 +5,6 @@
 import os
 from typing import List, Optional, Union
 import numpy as np
-import matplotlib.pyplot as mpl
-
 import geopandas as gpd
 import dask.array  # used by poly_array(datatype="dask")
 from copy import deepcopy

@@ -12,7 +12,6 @@ import pandas as pd
 import xarray as xr
 import geopandas as gpd
 import shapely
-import matplotlib
 
 # import pygeos
 from pprint import pprint
