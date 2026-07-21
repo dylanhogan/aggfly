@@ -17,7 +17,7 @@ import geopandas as gpd
 import aggfly as af
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHP = os.path.join(_REPO, "notebooks/giovanni_example/usa_simple_noHI.shp")
+SHP = os.path.join(_REPO, "examples/notebooks/giovanni_example/usa_simple_noHI.shp")
 
 
 def maxrss_mb():

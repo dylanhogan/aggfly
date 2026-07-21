@@ -10,13 +10,16 @@ The package is imported as `af` (`import aggfly as af`). The public API is re-ex
 
 ## Commands
 
-Dependency management is via Poetry (`pyproject.toml`, `poetry.lock`):
+Dependency management is via [uv](https://docs.astral.sh/uv/) (`pyproject.toml` with PEP 621 `[project]` metadata, `uv.lock`):
 
 ```bash
-poetry install              # install deps into a virtualenv
-poetry run pytest           # run the full test suite
-poetry run pytest aggfly/tests/test_aggregate.py::test_weights   # run a single test
+uv sync                     # create .venv and install deps (incl. the dev group)
+uv run pytest               # run the full test suite
+uv run pytest aggfly/tests/test_aggregate.py::test_weights   # run a single test
+uv run aggfly --help        # invoke the CLI entry point
 ```
+
+uv manages its own Python interpreter (pinned in `.python-version`), so runs are isolated from any system/conda Python. Migrated from Poetry 2026-07; the build backend is hatchling and `pytest` lives in the `dev` dependency group.
 
 Tests live in `aggfly/tests/test_aggregate.py`. The fixtures (`dataset_360`, `georegion`, `secondary_weights`, `weights`) build small synthetic in-memory objects, so tests need no external data files. Assertions compare against hardcoded numeric arrays via `np.allclose`, so changes to the aggregation math will require updating the expected values in those tests.
 
@@ -59,6 +62,8 @@ A single `dd`/`bins` step with multiple `ddargs` (`multi_dd`) fans one variable 
 
 ## Notes
 
-- `notebooks/` contains example workflows (`run_t2m_us-counties_example.ipynb`, `giovanni_example/`) and scratch/experimental scripts — these are not part of the package and are not tested.
+- **Documentation layout** (reorganized 2026-07): `README.md` is a slim landing page (overview, install, quickstart, links). All prose docs live under `docs/` — `index.md` (TOC), `installation.md`, `concepts.md`, `guide/{quickstart,weights,aggregation,execution,calendars}.md`, `cli.md`, `api.md`. Update the relevant `docs/` page, not the README, when behavior changes.
+- `internal/` holds historical planning docs (`cli-plan.md`, `backend-plan.md`, `modernization-baseline.md`) — design records, not user docs and not necessarily current.
+- `examples/` holds runnable CLI configs and, under `examples/notebooks/`, the curated example workflows (`run_t2m_us-counties_example.ipynb`, `giovanni_example/`). These are not part of the package and are not tested. `benchmarks/bench_{sjoin,weights}.py` read the shapefile from `examples/notebooks/giovanni_example/`.
+- `notebooks/` is scratch/experimental only.
 - `aggfly/aggregate/z_old/` and `aggfly/scratch.py` are dead/legacy code; don't rely on them.
-- The README documents the intended user-facing workflow with fuller examples; several sections there are marked TODO/incomplete.
