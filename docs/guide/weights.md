@@ -44,6 +44,33 @@ weights = af.weights_from_objects(
 weights.calculate_weights()
 ```
 
+### The latitude correction and secondary weights
+
+Area weighting multiplies by `cos(latitude)`, because a cell of fixed extent in
+degrees covers less physical ground toward the poles.
+
+That correction is **not** applied on top of a secondary raster. A population or
+cropland raster already reports how much of the quantity sits in each cell — a
+poleward cell being physically smaller is already reflected in its lower count —
+so applying `cos(latitude)` as well would count the same distortion twice and
+bias any region spanning a wide range of latitudes.
+
+`cosine_area` therefore defaults to **True for area-only weights** and **False
+when a secondary raster is supplied**. The defining property holds either way: if
+population is spread uniformly over the surface, population weighting reproduces
+plain area weighting.
+
+Override it explicitly if your secondary raster is a density per unit *physical*
+area (e.g. people per km²), where the conversion is still needed:
+
+```python
+weights = af.weights_from_objects(
+    dataset, georegions,
+    secondary_weights=secondary_weights,
+    cosine_area=True,          # raster is people per km², not people per cell
+)
+```
+
 ### Available loaders
 
 | Function | Use for |
@@ -71,6 +98,19 @@ a cache hit.
 
 From the CLI, `aggfly weights config.yaml` precomputes and caches weights without
 running an aggregation; a later `aggfly run` picks them up from the cache.
+
+## Missing data in the secondary raster
+
+Population rasters are usually clipped to a country, leaving nodata outside it
+(the WorldPop Kenya file is ~42% nodata). Those pixels are **excluded** from the
+rescaling average rather than treated as zero, which makes `raster_weight` a
+density per *valid* pixel. Combined with the overlap fraction that is the right
+behaviour when the nodata mask follows the region boundary.
+
+It does mean that nodata *inside* a region — inland water, or genuine gaps in the
+raster — inflates that cell's weight, since the empty part is ignored rather than
+counted as unpopulated. Use a raster with explicit zeros if you want those areas
+to count as empty.
 
 ## Notes and constraints
 

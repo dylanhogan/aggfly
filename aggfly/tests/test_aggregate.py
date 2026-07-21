@@ -206,12 +206,25 @@ def test_weights(weights):
     assert isinstance(weights.raster_weights, af.SecondaryWeights)
     # Print weights
     print(weights.weights)
-    # Check area weights (cosine-of-latitude corrected: cells here are at lat +-45)
+    # This fixture supplies SECONDARY weights, so cosine_area resolves to False
+    # and area_weight is the pure cell/region overlap fraction. The cos(latitude)
+    # correction is deliberately not applied on top of a secondary raster, which
+    # already reports how much of the quantity sits in each cell (see
+    # GridWeights.cosine_area).
+    #
+    # The grid is also NON-SQUARE: longitude spacing is 180 deg and latitude
+    # spacing is 90 deg, so a cell is 180x90 and the four cells exactly tile the
+    # globe. Earlier expectations encoded square 90x90 cells built from the
+    # latitude spacing alone, which do not tile the globe.
+    #
+    # Verified independently by intersecting true 180x90 rectangles with the
+    # region polygon.
     assert np.allclose(
         weights.weights.area_weight,
-        np.array([0.62062975, 0.59818877, 0.30089622, 0.66666658])
+        np.array([0.68526356, 0.82993589, 0.39051704, 0.82911388])
     )
-    # Check raster weights
+    # Check raster weights (unchanged: the secondary raster rescaling does not
+    # depend on the cell footprint)
     assert np.allclose(
         weights.weights.raster_weight,
         np.array([0.67392287, 0.80659155, 0.56727215, 0.38801016])
@@ -219,7 +232,7 @@ def test_weights(weights):
     # Check final weights
     assert np.allclose(
         weights.weights.weight,
-        np.array([0.17171243, 0.19808467, 0.07007565, 0.10619663])
+        np.array([0.18959496, 0.27482559, 0.09094742, 0.13207367])
     )
 
 def test_aggregate_time(dataset_360, weights):
@@ -295,7 +308,7 @@ def test_aggregate(dataset_360, weights):
 
     # Check if the aggregated values are as expected
     assert np.allclose(df[['tavg_1', 'tavg_2']].values,
-        np.array([[  46.906441, 1202.304441]])
+        np.array([[  47.75461 , 1245.594351]])
     )
 
 
@@ -342,7 +355,7 @@ def test_aggregate_numba(dataset_360, weights):
     )
 
     assert np.allclose(df[['tavg_1', 'tavg_2']].values,
-        np.array([[  46.906441, 1202.304441]])
+        np.array([[  47.75461 , 1245.594351]])
     )
 
 
@@ -773,3 +786,205 @@ def test_resolve_engine():
     import pytest
     with pytest.raises(ValueError):
         resolve_engine("bogus", small, "mean")
+
+
+# ---------------------------------------------------------------------------
+# Non-square grids
+#
+# Grid resolution used to be a single scalar taken from the LATITUDE spacing
+# and applied to both axes. On a non-square grid (CMIP6 output is commonly
+# 1.0 deg lat x 1.25 deg lon) that draws cells with the wrong footprint: they
+# no longer tile the grid, and border-cell area weights are measured against a
+# cell of the wrong size. These tests pin the per-axis behaviour.
+# ---------------------------------------------------------------------------
+
+def _nonsquare_dataset(dlon=1.25, dlat=1.0):
+    """A small non-square grid: dlon != dlat."""
+    lon = np.arange(-10, 10, dlon) + dlon / 2
+    lat = np.arange(-8, 8, dlat) + dlat / 2
+    time = pd.date_range("2000-01-01", periods=4, freq="12h")
+    np.random.seed(7)
+    arr = np.random.normal(20, 5, (len(time), len(lat), len(lon)))
+    da = xr.DataArray(
+        arr,
+        dims=["time", "latitude", "longitude"],
+        coords={"time": time, "latitude": lat, "longitude": lon},
+    )
+    return af.Dataset(da, lon_is_360=False)
+
+
+def test_grid_resolution_is_per_axis():
+    ds = _nonsquare_dataset(dlon=1.25, dlat=1.0)
+    grid = ds.grid
+    assert np.isclose(grid.resolution_lon, 1.25)
+    assert np.isclose(grid.resolution_lat, 1.0)
+    assert not grid.is_square
+    # Cell area is the rectangle, not resolution**2
+    assert np.isclose(grid.cell_area, 1.25 * 1.0)
+    # The scalar alias stays conservative (used only for search buffers)
+    assert np.isclose(grid.resolution, 1.25)
+
+
+def test_grid_resolution_square_grid_agrees_on_both_axes():
+    ds = _nonsquare_dataset(dlon=0.5, dlat=0.5)
+    grid = ds.grid
+    assert grid.is_square
+    assert np.isclose(grid.resolution_lon, grid.resolution_lat)
+    assert np.isclose(grid.cell_area, 0.25)
+    assert np.isclose(grid.resolution, 0.5)
+
+
+def test_nonsquare_area_weights_match_true_rectangles():
+    """
+    Area weights on a non-square grid must equal the true rectangular
+    cell/region overlap fraction, cosine-of-latitude corrected.
+
+    This is the assertion that fails if a single scalar resolution is used for
+    both axes: the overlap is then computed against a square cell.
+    """
+    dlon, dlat = 1.25, 1.0
+    ds = _nonsquare_dataset(dlon, dlat)
+
+    poly = shapely.Point(0.0, 0.0).buffer(5.0)   # circle -> many border cells
+    gdf = gpd.GeoDataFrame({"geoid": ["r1"], "geometry": [poly]}).set_crs("WGS84")
+    georegions = af.GeoRegions(gdf, regionid="geoid")
+
+    w = af.weights_from_objects(ds, georegions)
+    w.calculate_weights()
+    wdf = w.weights
+
+    # There must actually be partially-covered cells, or the test proves nothing
+    partial = (wdf.area_weight > 1e-9) & (wdf.area_weight < 0.99)
+    assert partial.sum() > 5
+
+    expected = []
+    for row in wdf.itertuples():
+        cell = shapely.box(
+            row.longitude - dlon / 2, row.latitude - dlat / 2,
+            row.longitude + dlon / 2, row.latitude + dlat / 2,
+        )
+        frac = cell.intersection(poly).area / (dlon * dlat)
+        expected.append(frac * np.cos(np.radians(row.latitude)))
+
+    assert np.allclose(wdf.area_weight.values, np.array(expected))
+
+
+def test_nonsquare_cells_tile_without_gaps():
+    """
+    Adjacent cells on a non-square grid must share edges. Building them with a
+    single scalar resolution leaves gaps along the wider axis (the symptom that
+    shows up in GridWeights.plot_weights).
+    """
+    dlon, dlat = 1.25, 1.0
+    grid = _nonsquare_dataset(dlon, dlat).grid
+
+    lon = np.sort(np.unique(grid.longitude))[:2]
+    lat = np.sort(np.unique(grid.latitude))[:1]
+    left = shapely.box(lon[0] - grid.resolution_lon / 2, lat[0] - grid.resolution_lat / 2,
+                       lon[0] + grid.resolution_lon / 2, lat[0] + grid.resolution_lat / 2)
+    right = shapely.box(lon[1] - grid.resolution_lon / 2, lat[0] - grid.resolution_lat / 2,
+                        lon[1] + grid.resolution_lon / 2, lat[0] + grid.resolution_lat / 2)
+
+    # Neighbouring cells touch exactly: no gap, no overlap
+    assert left.touches(right)
+    assert np.isclose(left.union(right).area, 2 * dlon * dlat)
+
+
+# ---------------------------------------------------------------------------
+# cosine_area and secondary weights
+#
+# cos(latitude) converts a cell's extent in degrees into physical area, which is
+# what AREA weighting needs. A secondary raster (population, cropland) already
+# reports how much of the quantity sits in each cell, so applying cos(latitude)
+# on top of it counts the same distortion twice. cosine_area therefore defaults
+# to True for area-only weights and False when a secondary raster is supplied.
+# ---------------------------------------------------------------------------
+
+def _lat_span_setup():
+    """Grid spanning 0-30 deg latitude, temperature == latitude."""
+    lon = np.arange(0, 3, 1.0) + 0.5
+    lat = np.arange(0, 30, 1.0) + 0.5
+    time = pd.date_range("2000-01-01", periods=2, freq="D")
+    arr = np.broadcast_to(lat[None, :, None], (len(time), len(lat), len(lon))).copy()
+    ds = af.Dataset(
+        xr.DataArray(arr, dims=["time", "latitude", "longitude"],
+                     coords={"time": time, "latitude": lat, "longitude": lon}),
+        lon_is_360=False,
+    )
+    gdf = gpd.GeoDataFrame({"geoid": ["r1"], "geometry": [shapely.box(0, 0, 3, 30)]})
+    georegions = af.GeoRegions(gdf.set_crs("WGS84"), regionid="geoid")
+    return ds, georegions, lon, lat
+
+
+def _secondary_from(values, lon_src, lat_src):
+    da = xr.DataArray(
+        values[None, :, :], dims=["band", "y", "x"],
+        coords={"band": [1], "y": lat_src, "x": lon_src},
+    ).rio.write_crs("WGS84")
+    return af.SecondaryWeights(da)
+
+
+def _tavg(ds, w):
+    df = af.aggregate_dataset(
+        dataset=ds, weights=w,
+        tavg=[("aggregate", {"calc": "mean", "groupby": "date"})],
+    )
+    return float(df.tavg.iloc[0])
+
+
+def test_cosine_area_default_depends_on_secondary_weights():
+    ds, georegions, _, _ = _lat_span_setup()
+    # area-only -> cos(lat) applied
+    assert af.weights_from_objects(ds, georegions).cosine_area is True
+
+    lon_src = np.arange(0, 3, 0.25) + 0.125
+    lat_src = np.arange(0, 30, 0.25) + 0.125
+    sw = _secondary_from(np.ones((len(lat_src), len(lon_src))), lon_src, lat_src)
+    # secondary present -> cos(lat) not applied on top of the raster
+    assert af.weights_from_objects(ds, georegions, secondary_weights=sw).cosine_area is False
+    # explicit values still win in both directions
+    assert af.weights_from_objects(
+        ds, georegions, secondary_weights=sw, cosine_area=True).cosine_area is True
+    assert af.weights_from_objects(ds, georegions, cosine_area=False).cosine_area is False
+
+
+def test_uniform_population_weighting_equals_area_weighting():
+    """
+    The defining property: if population is spread uniformly over the surface
+    (constant people per unit PHYSICAL area), then weighting by population must
+    reproduce plain area weighting.
+
+    A uniform-per-km2 population has per-pixel counts proportional to cos(lat),
+    because equal-degree pixels shrink toward the poles.
+    """
+    ds, georegions, _, lat = _lat_span_setup()
+    lon_src = np.arange(0, 3, 0.25) + 0.125
+    lat_src = np.arange(0, 30, 0.25) + 0.125
+
+    uniform_per_km2 = np.broadcast_to(
+        np.cos(np.radians(lat_src))[:, None], (len(lat_src), len(lon_src))
+    ).copy()
+    sw = _secondary_from(uniform_per_km2, lon_src, lat_src)
+
+    w_pop = af.weights_from_objects(ds, georegions, secondary_weights=sw)
+    w_pop.calculate_weights()
+    w_area = af.weights_from_objects(ds, georegions)
+    w_area.calculate_weights()
+
+    assert np.isclose(_tavg(ds, w_pop), _tavg(ds, w_area), atol=1e-4)
+
+
+def test_equal_population_per_cell_weights_cells_equally():
+    """
+    The complementary case: equal population in every cell must weight every
+    cell equally, giving the unweighted mean of the cell values.
+    """
+    ds, georegions, _, lat = _lat_span_setup()
+    lon_src = np.arange(0, 3, 0.25) + 0.125
+    lat_src = np.arange(0, 30, 0.25) + 0.125
+
+    sw = _secondary_from(np.ones((len(lat_src), len(lon_src))), lon_src, lat_src)
+    w = af.weights_from_objects(ds, georegions, secondary_weights=sw)
+    w.calculate_weights()
+
+    assert np.isclose(_tavg(ds, w), float(lat.mean()), atol=1e-4)

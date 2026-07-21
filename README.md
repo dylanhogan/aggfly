@@ -94,8 +94,7 @@ See the **[CLI reference](docs/cli.md)** and runnable configs in
 | [CLI](docs/cli.md) | `info`, `validate`, `weights`, `run`. |
 | [API reference](docs/api.md) | The public Python API. |
 
-Worked examples live in [`examples/`](examples/) (CLI configs) and
-[`examples/notebooks/`](examples/notebooks/).
+Worked examples live in [`examples/`](examples/) (CLI configs).
 
 **New to aggfly?** [`quickstart_public_data.ipynb`](examples/notebooks/quickstart_public_data.ipynb)
 is a standalone notebook that downloads all of its own data (~25 MB, public, no accounts) and runs
