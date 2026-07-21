@@ -1,6 +1,6 @@
 [project]
 name = "aggfly"
-version = "0.1.4"
+version = "0.2.0"
 description = "Efficient spatial and temporal aggregation of gridded climate data"
 authors = [{name = "Dylan Hogan", email = "dth2133@columbia.edu"}]
 readme = "README.md"
@@ -49,3 +49,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["aggfly"]
+
+# Hatchling's default sdist sweeps the whole project root, which pulled in the
+# presentation PDF, scratch notebooks, internal planning docs, benchmark data
+# and .claude/settings.local.json. Poetry's `packages = [{include = "aggfly"}]`
+# had scoped this implicitly. Keep the sdist to the package plus metadata.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/aggfly",
+    "/README.md",
+    "/LICENSE",
+]

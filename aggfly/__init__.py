@@ -21,12 +21,10 @@ from .weights import (
     secondary_weights_from_path
 )
 from .regions import GeoRegions, georegions_from_path, georegions_from_name
-from .tests import (
-    georegion,
-    dataset_360,
-    secondary_weights,
-    weights,
-    test_weights,
-    test_aggregate_time,
-    test_aggregate
-)
+
+# The test fixtures are deliberately NOT re-exported here. `aggfly.tests`
+# imports pytest at module load, so importing them made pytest a hard runtime
+# requirement of the library — `pip install aggfly; import aggfly` failed with
+# ModuleNotFoundError once pytest moved to the dev dependency group. Test
+# fixtures are not public API; import them directly from
+# `aggfly.tests.test_aggregate` if you need them.
