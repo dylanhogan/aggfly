@@ -78,10 +78,31 @@ class Grid:
         self.index = self.get_index()
         # Flatten index array to get cell IDs
         self.cell_id = self.index.flatten()
-        # Calculate resolution of the grid
-        self.resolution = self.get_resolution()
+        # Calculate resolution of the grid, per axis. Grids are frequently
+        # non-square (CMIP6 output is commonly 1.0 lat x 1.25 lon), so the two
+        # spacings must be tracked separately: using one for both draws cells
+        # with the wrong footprint and corrupts border-cell area weights.
+        self.resolution_lon, self.resolution_lat = self.get_resolution()
         # Calculate area of each cell in the grid
         self.cell_area = self.get_cell_area()
+
+    @property
+    def resolution(self):
+        """
+        A single scalar resolution for the grid.
+
+        Only well defined on a square grid. It is retained for buffer/search
+        distances, where the larger of the two spacings is the conservative
+        choice, and it equals both spacings when the grid is square. Use
+        ``resolution_lon`` / ``resolution_lat`` for anything that builds cell
+        geometry.
+        """
+        return max(self.resolution_lon, self.resolution_lat)
+
+    @property
+    def is_square(self):
+        """True when longitude and latitude spacing agree."""
+        return bool(np.isclose(self.resolution_lon, self.resolution_lat))
 
     @lru_cache(maxsize=None)
     # Function that gnerates the centroids for the grid.
@@ -93,13 +114,23 @@ class Grid:
 
     # Function that calculates the resolution of the grid
     def get_resolution(self):
-    # Calculate the average difference between consecutive latitude values to determine resolution
-        return abs(np.diff(self.latitude).mean())
+        # Average spacing along each axis, computed independently: a grid with
+        # 1.0 deg latitude steps may well have 1.25 deg longitude steps.
+        res_lon = abs(np.diff(self.longitude).mean()) if len(self.longitude) > 1 else 0.0
+        res_lat = abs(np.diff(self.latitude).mean()) if len(self.latitude) > 1 else 0.0
+        # Degenerate single-row/column grids fall back to the other axis so the
+        # cell still has a finite footprint.
+        if res_lon == 0.0:
+            res_lon = res_lat
+        if res_lat == 0.0:
+            res_lat = res_lon
+        return res_lon, res_lat
 
     # Function that calculates the area of each cell in the grid
     def get_cell_area(self):
-        # Create a square cell using the resolution and calculate its area using shapely
-        cell = shapely.box(0, 0, self.resolution, self.resolution)
+        # Cell footprint in degrees^2. Must match the rectangles built in
+        # GridWeights.border_cells, since area_weight divides by this.
+        cell = shapely.box(0, 0, self.resolution_lon, self.resolution_lat)
         return shapely.area(cell)
 
     # Function that generates an index array for the grid
@@ -157,22 +188,24 @@ class Grid:
         """
         # Determine which longitudes fall within the bounding box
         inlon = np.logical_and(
-            self.longitude >= bounds[0] - self.resolution / 2,
-            self.longitude <= bounds[2] + self.resolution / 2,
+            self.longitude >= bounds[0] - self.resolution_lon / 2,
+            self.longitude <= bounds[2] + self.resolution_lon / 2,
         )
         # Get the min and max longitudes within the bounding box
         inlon_b = [self.longitude[inlon].min(), self.longitude[inlon].max()]
 
         # Determine which latitudes fall within the bounding box
         inlat = np.logical_and(
-            self.latitude >= bounds[1] - self.resolution / 2,
-            self.latitude <= bounds[3] + self.resolution / 2,
+            self.latitude >= bounds[1] - self.resolution_lat / 2,
+            self.latitude <= bounds[3] + self.resolution_lat / 2,
         )
         # Get the min and max latitudes within the bounding box
         inlat_b = [self.latitude[inlat].min(), self.latitude[inlat].max()]
 
         # Generate grid centroids within the bounding box
-        longitude, latitude = grid_centroids(inlon_b, inlat_b, self.resolution)
+        longitude, latitude = grid_centroids(
+            inlon_b, inlat_b, self.resolution_lon, self.resolution_lat
+        )
 
         # Update grid attributes with the new longitude and latitude values within the bounding box
         self.longitude = self.longitude[inlon]
@@ -324,11 +357,11 @@ class Grid:
         # Create Dask arrays for the corners of the cells
         lonpoints = [
             dask.array.from_array(mlon + x, chunks=(chunksize, -1, -1))
-            for x in [-self.resolution / 2, self.resolution / 2]
+            for x in [-self.resolution_lon / 2, self.resolution_lon / 2]
         ]
         latpoints = [
             dask.array.from_array(mlat + x, chunks=(chunksize, -1, -1))
-            for x in [-self.resolution / 2, self.resolution / 2]
+            for x in [-self.resolution_lat / 2, self.resolution_lat / 2]
         ]
         # Create Shapely boxes (cells) using the corners
         boxes = lonpoints[0].map_blocks(

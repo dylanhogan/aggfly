@@ -96,7 +96,7 @@ def array_lon_to_360(array):
     return array
 
 
-def grid_centroids(lon_bound, lat_bound, res):
+def grid_centroids(lon_bound, lat_bound, res, res_lat=None):
     """
     Generates a grid of centroids based on longitude and latitude bounds and resolution.
 
@@ -107,17 +107,22 @@ def grid_centroids(lon_bound, lat_bound, res):
     lat_bound: list
         The latitude bounds [min, max].
     res: float
-        The resolution of the grid.
+        The longitude spacing of the grid (also used for latitude when
+        ``res_lat`` is not given, i.e. on a square grid).
+    res_lat: float, optional
+        The latitude spacing, when it differs from the longitude spacing.
 
     Returns:
     --------
     tuple:
         Two numpy arrays representing the longitude and latitude centroids.
     """
+    if res_lat is None:
+        res_lat = res
     # Create a mesh grid of longitude and latitude centroids
     longitude, latitude = np.meshgrid(
         np.arange(lon_bound[0], lon_bound[1], res),
-        np.arange(lat_bound[0], lat_bound[1], res),
+        np.arange(lat_bound[0], lat_bound[1], res_lat),
     )
     return longitude, latitude
 
