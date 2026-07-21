@@ -30,6 +30,26 @@ georegions = af.georegions_from_path(
 )
 ```
 
+Not sure which column to use as `regionid`? Inspect the file first — this reads
+the header, not the data:
+
+```python
+af.shapefile_info("~/data/shapefiles/county/cb_2018_us_county_500k.shp",
+                  uniqueness=True)
+```
+
+It prints the fields and their types, the CRS, the feature count and bounds, a
+few rows, and — with `uniqueness=True` — exactly which columns are unique across
+every feature, which is what a region id has to be.
+
+If your regions are already in memory (filtered, dissolved, or built in code),
+skip the file entirely:
+
+```python
+west = counties[counties.STATE.isin(["CA", "OR", "WA"])]
+georegions = af.georegions_from_gdf(west, regionid='GEOID')
+```
+
 Then load a **sample layer** of the climate raster. This is only used to describe
 the grid so that weights can be computed — it does not need to be the full dataset:
 

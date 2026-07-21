@@ -1097,3 +1097,113 @@ def test_dataset_from_path_accepts_explicit_engine_on_a_zarr_path(tmp_path):
     ds.to_zarr(store)
     out = af.dataset_from_path(str(store), var="t2m", engine="zarr")
     assert out.da.sizes["time"] == 3
+
+
+# ---------------------------------------------------------------------------
+# georegions_from_gdf / shapefile_info
+# ---------------------------------------------------------------------------
+
+def _region_gdf():
+    return gpd.GeoDataFrame(
+        {"fips": ["01", "02", "03"],
+         "name": ["a", "b", "c"],
+         "geometry": [shapely.box(i, 0, i + 1, 1) for i in range(3)]},
+        crs="WGS84",
+    )
+
+
+def test_georegions_from_gdf_matches_the_file_round_trip(tmp_path):
+    gdf = _region_gdf()
+    path = tmp_path / "r.shp"
+    gdf.to_file(path)
+
+    from_path = af.georegions_from_path(str(path), regionid="fips")
+    from_gdf = af.georegions_from_gdf(gdf, regionid="fips")
+
+    assert list(from_gdf.regions) == list(from_path.regions)
+    # geom_equals, not equals: writing to a shapefile reverses ring winding
+    # (ESRI orders exterior rings clockwise), so the coordinate sequences differ
+    # even though the shapes are identical.
+    assert from_gdf.shp.geometry.geom_equals(from_path.shp.geometry).all()
+
+
+def test_georegions_from_gdf_subsets_and_does_not_mutate_the_caller():
+    gdf = _region_gdf()
+    gr = af.georegions_from_gdf(gdf, regionid="fips", region_list=["01", "03"])
+    assert list(gr.regions) == ["01", "03"]
+    assert len(gdf) == 3          # the caller's frame is untouched
+
+
+def test_georegions_from_gdf_rejects_bad_input():
+    gdf = _region_gdf()
+
+    with pytest.raises(TypeError):
+        af.georegions_from_gdf(pd.DataFrame({"a": [1]}), "a")
+
+    with pytest.raises(ValueError, match="empty"):
+        af.georegions_from_gdf(gdf.iloc[0:0], "fips")
+
+    # A bad regionid must name the columns that *are* available
+    with pytest.raises(ValueError) as exc:
+        af.georegions_from_gdf(gdf, "nope")
+    assert "fips" in str(exc.value) and "name" in str(exc.value)
+
+    with pytest.raises(ValueError, match="CRS"):
+        af.georegions_from_gdf(gdf.set_crs(None, allow_override=True), "fips")
+
+
+def test_georegions_from_gdf_warns_on_duplicate_and_missing_ids():
+    dup = _region_gdf()
+    dup.loc[2, "fips"] = "01"
+    with pytest.warns(UserWarning, match="not unique"):
+        af.georegions_from_gdf(dup, "fips")
+
+    missing = _region_gdf()
+    missing.loc[1, "fips"] = None
+    with pytest.warns(UserWarning, match="missing"):
+        af.georegions_from_gdf(missing, "fips")
+
+
+def test_shapefile_info_reports_fields_bounds_and_unique_columns(tmp_path):
+    gdf = _region_gdf()
+    path = tmp_path / "r.shp"
+    gdf.to_file(path)
+
+    info = af.shapefile_info(str(path), n=2, uniqueness=True)
+
+    assert info["features"] == 3
+    assert set(info["fields"]) == {"fips", "name"}
+    assert info["crs"] is not None
+    assert len(info["total_bounds"]) == 4
+    assert info["head"] is not None and len(info["head"]) == 2
+    # geometry must not be dumped into the preview
+    assert "geometry" not in info["head"].columns
+    # both attribute columns are unique here, so both are regionid candidates
+    assert set(info["unique_columns"]) == {"fips", "name"}
+
+
+def test_shapefile_info_flags_a_non_unique_column(tmp_path):
+    gdf = _region_gdf()
+    gdf.loc[2, "name"] = "a"          # no longer unique
+    path = tmp_path / "r.shp"
+    gdf.to_file(path)
+
+    info = af.shapefile_info(str(path), n=0, uniqueness=True)
+    assert info["unique_columns"] == ["fips"]
+    assert info["head"] is None       # n=0 skips the preview
+
+
+def test_shapefile_info_handles_a_file_with_no_attributes(tmp_path):
+    """A geometry-only file has no column that could serve as a regionid.
+
+    Written as GeoJSON: the ESRI Shapefile format requires at least one
+    attribute field, so geopandas synthesizes an ``FID`` column and a truly
+    field-less shapefile cannot be produced.
+    """
+    gdf = gpd.GeoDataFrame({"geometry": [shapely.box(0, 0, 1, 1)]}, crs="WGS84")
+    path = tmp_path / "geom_only.geojson"
+    gdf.to_file(path, driver="GeoJSON")
+
+    info = af.shapefile_info(str(path))
+    assert info["fields"] == []
+    assert info["head"] is None       # nothing to preview without fields
