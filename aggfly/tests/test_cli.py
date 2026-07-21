@@ -699,3 +699,56 @@ def test_pipeline_omits_them_when_unset(monkeypatch):
 
     assert "storage_options" not in seen
     assert "engine" not in seen
+
+
+# ---------------------------------------------------------------------------
+# `aggfly regions` — the shapefile counterpart to `aggfly info`
+# ---------------------------------------------------------------------------
+
+def _write_shp(tmp_path, unique_second=True):
+    import geopandas as gpd
+    import shapely
+
+    names = ["a", "b", "c"] if unique_second else ["a", "b", "a"]
+    gdf = gpd.GeoDataFrame(
+        {"fips": ["01", "02", "03"], "name": names,
+         "geometry": [shapely.box(i, 0, i + 1, 1) for i in range(3)]},
+        crs="WGS84",
+    )
+    path = tmp_path / "r.shp"
+    gdf.to_file(path)
+    return path
+
+
+def test_regions_command_reports_fields_and_bounds(tmp_path):
+    path = _write_shp(tmp_path)
+    res = CliRunner().invoke(cli, ["regions", str(path)])
+    assert res.exit_code == 0, res.output
+    assert "fips" in res.output and "name" in res.output
+    assert "features=3" in res.output
+    assert "bounds" in res.output
+    assert "EPSG:4326" in res.output
+
+
+def test_regions_command_uniqueness_flag(tmp_path):
+    path = _write_shp(tmp_path, unique_second=False)   # 'name' repeats
+    res = CliRunner().invoke(cli, ["regions", str(path), "--uniqueness"])
+    assert res.exit_code == 0, res.output
+    # only fips qualifies as a region id
+    assert "regionid candidates" in res.output
+    line = [l for l in res.output.splitlines() if "fips" in l and "name" not in l]
+    assert line, res.output
+
+
+def test_regions_command_rows_zero_skips_preview(tmp_path):
+    path = _write_shp(tmp_path)
+    res = CliRunner().invoke(cli, ["regions", str(path), "-n", "0"])
+    assert res.exit_code == 0
+    assert "row(s)" not in res.output
+
+
+def test_regions_command_missing_file_is_a_clean_error(tmp_path):
+    res = CliRunner().invoke(cli, ["regions", str(tmp_path / "nope.shp")])
+    assert res.exit_code != 0
+    assert "Error:" in res.output
+    assert "Traceback" not in res.output       # user error, not a bug

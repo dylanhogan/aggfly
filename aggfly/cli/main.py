@@ -48,6 +48,38 @@ def info(path, var, storage_options):
 
 
 @cli.command()
+@click.argument("path", type=click.Path())
+@click.option("-n", "--rows", default=5, show_default=True,
+              help="Rows to preview. 0 skips the preview.")
+@click.option("--uniqueness/--no-uniqueness", default=False,
+              help="Also report which columns are unique across every feature "
+                   "(reads all attributes but no geometry).")
+@click.option("-v", "--verbose", is_flag=True, help="Show the full traceback on error.")
+def regions(path, rows, uniqueness, verbose):
+    """Inspect a shapefile to work out its region id column.
+
+    The counterpart to `aggfly info` for the regions side of a config: reports
+    fields and dtypes, CRS, feature count, bounds and a few rows, so you can
+    fill in ``regions.regionid``. Metadata comes from the file header, so
+    nothing is loaded. PATH may be any vector file GDAL can read.
+
+    With --uniqueness it also reports which columns are unique across every
+    feature, which is what a region id has to be.
+    """
+    # Imported here, not at module load: pulling in aggfly costs ~0.5 s and
+    # would slow every `--help` (same reason `pipeline` is imported lazily).
+    from ..regions import shapefile_info
+
+    try:
+        shapefile_info(path, n=rows, uniqueness=uniqueness)
+    except Exception as e:
+        if verbose:
+            raise
+        # An unreadable path is a user error, not a bug: one line, no traceback.
+        raise click.ClickException(f"{type(e).__name__}: {e}")
+
+
+@cli.command()
 @click.argument("config", type=click.Path())
 @click.option(
     "--strict",
