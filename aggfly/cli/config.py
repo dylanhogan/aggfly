@@ -65,6 +65,8 @@ class RunConfig:
     time_sel: Optional[str]
     chunks: Optional[Dict[str, object]]
     clip_to_regions: bool
+    storage_options: Optional[Dict[str, object]]
+    reader_engine: Optional[str]
     # weights
     project_dir: Optional[str]
     secondary: Optional[SecondaryWeightsConfig]
@@ -260,6 +262,18 @@ def parse_config(raw) -> RunConfig:
         errors.append("dataset.xycoords must be a 2-item list [lon_name, lat_name]")
         xycoords = ["longitude", "latitude"]
 
+    # Passed straight through to dataset_from_path -> xarray, so that object
+    # stores (gs://, s3://) can be read from a config. Validated only for shape:
+    # the accepted keys belong to the fsspec backend, not to aggfly.
+    storage_options = dataset.get("storage_options")
+    if storage_options is not None and not isinstance(storage_options, dict):
+        errors.append("dataset.storage_options must be a mapping")
+        storage_options = None
+    reader_engine = dataset.get("engine")
+    if reader_engine is not None and not isinstance(reader_engine, str):
+        errors.append("dataset.engine must be a string (e.g. 'zarr')")
+        reader_engine = None
+
     # weights
     project_dir = weights.get("project_dir")
     secondary_raw = weights.get("secondary")
@@ -347,6 +361,8 @@ def parse_config(raw) -> RunConfig:
         time_sel=dataset.get("time_sel"),
         chunks=dataset.get("chunks"),
         clip_to_regions=bool(dataset.get("clip_to_regions", True)),
+        storage_options=storage_options,
+        reader_engine=reader_engine,
         project_dir=project_dir,
         secondary=secondary,
         engine=engine,
@@ -405,6 +421,12 @@ def describe(config: RunConfig) -> str:
         f"              lon_is_360={config.lon_is_360} "
         f"timecoord={config.timecoord} xycoords={list(config.xycoords)}"
     )
+    if config.reader_engine:
+        lines.append(f"              reader engine: {config.reader_engine}")
+    if config.storage_options:
+        # Show which keys were supplied, never their values: these carry tokens.
+        keys = ", ".join(sorted(config.storage_options))
+        lines.append(f"              storage_options: {{{keys}}} (values hidden)")
     if config.preprocess:
         lines.append(f"              preprocess: {config.preprocess}")
     elif config.preprocess_from:

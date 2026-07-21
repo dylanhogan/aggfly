@@ -606,3 +606,96 @@ def test_weights_command_with_project_dir(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Cached under" in result.output
     assert proj.exists()  # the project dir/cache was created
+
+
+# ---------------------------------------------------------------------------
+# dataset.storage_options / dataset.engine
+#
+# These are forwarded verbatim to dataset_from_path -> xarray so a config can
+# point at object storage (gs://, s3://). Before this, the CLI could only read
+# local paths: there was nowhere to put credentials or a reader backend.
+# ---------------------------------------------------------------------------
+
+def _cfg_with_dataset(**dataset_extra):
+    import copy
+    cfg = copy.deepcopy(GOOD_CONFIG)
+    cfg["dataset"].update(dataset_extra)
+    return cfg
+
+
+def test_storage_options_and_engine_parse():
+    cfg = _cfg_with_dataset(
+        storage_options={"token": "anon"}, engine="zarr"
+    )
+    parsed = cfgmod.parse_config(cfg)
+    assert parsed.storage_options == {"token": "anon"}
+    assert parsed.reader_engine == "zarr"
+
+
+def test_storage_options_default_to_none():
+    parsed = cfgmod.parse_config(GOOD_CONFIG)
+    assert parsed.storage_options is None
+    assert parsed.reader_engine is None
+
+
+def test_storage_options_must_be_a_mapping():
+    with pytest.raises(Exception) as exc:
+        cfgmod.parse_config(_cfg_with_dataset(storage_options="token=anon"))
+    assert "storage_options must be a mapping" in str(exc.value)
+
+
+def test_reader_engine_must_be_a_string():
+    with pytest.raises(Exception) as exc:
+        cfgmod.parse_config(_cfg_with_dataset(engine=["zarr"]))
+    assert "dataset.engine must be a string" in str(exc.value)
+
+
+def test_describe_hides_storage_option_values():
+    parsed = cfgmod.parse_config(
+        _cfg_with_dataset(storage_options={"token": "super-secret", "anon": True})
+    )
+    out = cfgmod.describe(parsed)
+    assert "super-secret" not in out          # never print credentials
+    assert "token" in out and "anon" in out   # but do show which keys were set
+    assert "values hidden" in out
+
+
+def test_pipeline_forwards_storage_options_and_engine(monkeypatch):
+    """load_dataset must hand both straight to dataset_from_path."""
+    from aggfly.cli import pipeline as pl
+
+    seen = {}
+
+    def fake_from_path(path, **kwargs):
+        seen.update(kwargs)
+        seen["path"] = path
+        return "DATASET"
+
+    monkeypatch.setattr(pl.af, "dataset_from_path", fake_from_path)
+
+    parsed = cfgmod.parse_config(
+        _cfg_with_dataset(storage_options={"token": "anon"}, engine="zarr")
+    )
+    out = pl.load_dataset(parsed, "gs://bucket/store", georegions=None)
+
+    assert out == "DATASET"
+    assert seen["storage_options"] == {"token": "anon"}
+    assert seen["engine"] == "zarr"
+    assert seen["path"] == "gs://bucket/store"
+
+
+def test_pipeline_omits_them_when_unset(monkeypatch):
+    """Absent config keys must not appear as kwargs at all."""
+    from aggfly.cli import pipeline as pl
+
+    seen = {}
+
+    def fake_from_path(path, **kwargs):
+        seen.update(kwargs)
+        return "DATASET"
+
+    monkeypatch.setattr(pl.af, "dataset_from_path", fake_from_path)
+    pl.load_dataset(cfgmod.parse_config(GOOD_CONFIG), "local.zarr", georegions=None)
+
+    assert "storage_options" not in seen
+    assert "engine" not in seen
