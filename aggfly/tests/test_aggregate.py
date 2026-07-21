@@ -1207,3 +1207,113 @@ def test_shapefile_info_handles_a_file_with_no_attributes(tmp_path):
     info = af.shapefile_info(str(path))
     assert info["fields"] == []
     assert info["head"] is None       # nothing to preview without fields
+
+
+# ---------------------------------------------------------------------------
+# Unified secondary weights
+#
+# PopWeights and CropWeights are now thin wrappers over SecondaryWeights: the
+# crop is a coordinate selection (`sel`) and the feed regime is a cache
+# discriminator (`cache_identifier`). These pin the equivalences and the newly
+# generalized loader.
+# ---------------------------------------------------------------------------
+
+def _pop_tif(tmp_path, name="pop.tif"):
+    import rioxarray  # noqa: F401  (registers the .rio accessor)
+    y = np.arange(0, 4.0) + 0.5
+    x = np.arange(0, 4.0) + 0.5
+    da = xr.DataArray(np.arange(16, dtype="float32").reshape(1, 4, 4),
+                      dims=["band", "y", "x"],
+                      coords={"band": [1], "y": y, "x": x}).rio.write_crs("WGS84")
+    p = tmp_path / name
+    da.rio.to_raster(p)
+    return p
+
+
+def _cropland_zarr(tmp_path):
+    """A cropland-style store: a `layer` variable indexed by a `crop` coord.
+
+    Note the CRS does not survive the zarr round trip (`spatial_ref` is not
+    written back), so callers pass ``crs="WGS84"`` — which is exactly what the
+    ``crs=`` argument is for, and what the pre-refactor API also required.
+    """
+    y = np.arange(0, 4.0) + 0.5
+    x = np.arange(0, 4.0) + 0.5
+    ds = xr.Dataset(
+        {"layer": (("crop", "y", "x"),
+                   np.stack([np.ones((4, 4)), np.full((4, 4), 7.0)]))},
+        coords={"crop": ["corn", "soybeans"], "y": y, "x": x},
+    ).rio.write_crs("WGS84")
+    p = tmp_path / "cropland.zarr"
+    ds.to_zarr(p)
+    return p
+
+
+def test_pop_weights_equal_generic_secondary_weights(tmp_path):
+    path = str(_pop_tif(tmp_path))
+    pop = af.pop_weights_from_path(path)
+    gen = af.secondary_weights_from_path(path, wtype="pop")
+
+    assert isinstance(pop, af.PopWeights)
+    assert pop.wtype == gen.wtype == "pop"
+    assert np.array_equal(pop.raster.values, gen.raster.values)
+    # identical cache keys -> the two routes share cached work
+    assert pop.cdict() == gen.cdict()
+
+
+def test_pop_weights_now_validate_crs(tmp_path):
+    """PopWeights previously skipped the CRS check that SecondaryWeights does."""
+    da = xr.DataArray(np.ones((1, 2, 2)), dims=["band", "y", "x"],
+                      coords={"band": [1], "y": [0.5, 1.5], "x": [0.5, 1.5]})
+    with pytest.raises(ValueError, match="CRS"):
+        af.PopWeights(da)
+
+
+def test_crop_weights_equal_generic_selection(tmp_path):
+    path = str(_cropland_zarr(tmp_path))
+    crop = af.crop_weights_from_path(path, crop="soybeans", feed="rainfed", crs="WGS84")
+    gen = af.secondary_weights_from_path(
+        path, var="layer", sel={"crop": "soybeans"},
+        wtype="soybeans", cache_identifier="rainfed", crs="WGS84",
+    )
+    assert isinstance(crop, af.CropWeights)
+    assert np.array_equal(crop.raster.values, gen.raster.values)
+    assert crop.cdict() == gen.cdict()
+    # the selection really picked the right crop (soybeans == 7.0, corn == 1.0)
+    assert float(crop.raster.max()) == 7.0
+
+
+def test_crop_selection_picks_the_requested_crop(tmp_path):
+    path = str(_cropland_zarr(tmp_path))
+    corn = af.crop_weights_from_path(path, crop="corn", crs="WGS84")
+    soy = af.crop_weights_from_path(path, crop="soybeans", crs="WGS84")
+    assert float(corn.raster.max()) == 1.0
+    assert float(soy.raster.max()) == 7.0
+
+
+def test_feed_is_a_cache_discriminator(tmp_path):
+    """Two feed regimes off the same file must not share a cache entry."""
+    path = str(_cropland_zarr(tmp_path))
+    rain = af.crop_weights_from_path(path, crop="corn", feed="rainfed", crs="WGS84")
+    irr = af.crop_weights_from_path(path, crop="corn", feed="irrigated", crs="WGS84")
+    assert rain.feed == "rainfed" and irr.feed == "irrigated"
+    assert rain.cdict() != irr.cdict()
+
+
+def test_open_raster_supports_tif_zarr_and_netcdf(tmp_path):
+    from aggfly.weights.secondary_weights import open_raster
+
+    # GeoTIFF
+    assert open_raster(str(_pop_tif(tmp_path))) is not None
+    # Zarr, with variable + coordinate selection
+    z = open_raster(str(_cropland_zarr(tmp_path)), var="layer", sel={"crop": "corn"})
+    assert float(z.max()) == 1.0
+
+    # NetCDF
+    nc = tmp_path / "x.nc"
+    xr.Dataset({"layer": (("y", "x"), np.ones((2, 2)))},
+               coords={"y": [0.5, 1.5], "x": [0.5, 1.5]}).to_netcdf(nc)
+    assert open_raster(str(nc), var="layer") is not None
+
+    with pytest.raises(NotImplementedError, match="Unsupported raster format"):
+        open_raster(str(tmp_path / "x.bogus"))
