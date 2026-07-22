@@ -28,6 +28,7 @@ ALLOWED_ENGINE = {"auto", "dask", "numba"}
 ALLOWED_BACKEND = {"threads", "processes", "none"}
 ALLOWED_FORMAT = {"parquet", "feather", "csv"}
 ALLOWED_SECONDARY = {"pop", "crop", "generic"}
+ALLOWED_ZERO_WEIGHT = {"nan", "area", "drop"}
 ALLOWED_STEP_TYPES = {"aggregate", "transform"}
 
 
@@ -70,6 +71,7 @@ class RunConfig:
     # weights
     project_dir: Optional[str]
     secondary: Optional[SecondaryWeightsConfig]
+    zero_weight: str
     # aggregate
     engine: str
     variables: Dict[str, List]
@@ -276,6 +278,13 @@ def parse_config(raw) -> RunConfig:
 
     # weights
     project_dir = weights.get("project_dir")
+    # What to do with a region whose secondary weights sum to zero.
+    zero_weight = weights.get("zero_weight", "nan")
+    if zero_weight not in ALLOWED_ZERO_WEIGHT:
+        errors.append(
+            f"weights.zero_weight {zero_weight!r} not in {sorted(ALLOWED_ZERO_WEIGHT)}"
+        )
+        zero_weight = "nan"
     secondary_raw = weights.get("secondary")
     secondary = None
     if secondary_raw is not None:
@@ -365,6 +374,7 @@ def parse_config(raw) -> RunConfig:
         reader_engine=reader_engine,
         project_dir=project_dir,
         secondary=secondary,
+        zero_weight=zero_weight,
         engine=engine,
         variables=variables,
         years=years,
@@ -441,6 +451,7 @@ def describe(config: RunConfig) -> str:
         )
     else:
         lines.append("  weights   : area-only")
+    lines.append(f"  zero wt   : {config.zero_weight}")
     lines.append(f"  engine    : {config.engine}   backend: {config.backend}")
     lines.append(f"  output    : {config.output_path}  ({config.output_format})")
     lines.append(f"  variables : {len(config.variables)}")
