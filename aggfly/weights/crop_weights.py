@@ -1,233 +1,81 @@
-# This script provides a class and utility functions for handling crop-specific raster weights used in geospatial analysis.
-# The CropWeights class extends RasterWeights, allowing for the creation, caching, and management of raster data specific
-# to different crop types. Additionally, functions are provided to create CropWeights objects from file paths or predefined 
-# names (used as examples), as well as to open and format crop raster files.
+# Crop weights are ordinary secondary weights: the crop is a coordinate
+# selection on the raster, and the feed regime is a cache discriminator. Both are
+# now expressed through the generic machinery in secondary_weights.py — `sel`
+# and `cache_identifier` respectively — so everything here is a thin wrapper
+# kept so the public names stay stable.
 
-import os
-import warnings
-from functools import lru_cache
-from hashlib import sha256
-import json
-from pprint import pformat, pprint
-
-import numpy as np
-import pandas as pd
-import xarray as xr
-import geopandas as gpd
-from rasterio.enums import Resampling
-
-from .secondary_weights import RasterWeights
-from ..dataset import reformat_grid
-from ..cache import *
+from .secondary_weights import SecondaryWeights, secondary_weights_from_path
 
 
-class CropWeights(RasterWeights):
+class CropWeights(SecondaryWeights):
     """
-    A class to represent crop-specific raster weights.
-    
+    Secondary weights from a cropland raster.
+
+    Equivalent to ``SecondaryWeights`` with ``wtype`` set to the crop and
+    ``cache_identifier`` set to the feed regime. It subclasses rather than
+    aliases so ``isinstance(w, CropWeights)`` and the existing type hints keep
+    working.
+
     Attributes
     ----------
-    wtype : str
-        The type of crop.
-    feed : str, optional
-        The type of feed.
-    cache : dict
-        The cache for the CropWeights object.
+    feed : str or None
+        The feed regime (rainfed / irrigated / total). Stored as the cache
+        identifier, so two regimes never share a cache entry.
     """
 
-    def __init__(
-        self, raster, crop="corn", name=None, feed=None, path=None, project_dir=None
-    ):
-        """
-        Initializes the CropWeights object.
+    def __init__(self, raster, crop="corn", name=None, feed=None, path=None,
+                 project_dir=None):
+        super().__init__(
+            raster, name=name, path=path, project_dir=project_dir,
+            wtype=crop, cache_identifier=feed,
+        )
 
-        Parameters
-        ----------
-        raster : xarray.DataArray
-            The raster data array.
-        crop : str, optional
-            The type of crop (default is "corn").
-        name : str, optional
-            The name of the CropWeights object (default is None).
-        feed : str, optional
-            The type of feed (default is None).
-        path : str, optional
-            The path to the raster file (default is None).
-        project_dir : str, optional
-            The project directory (default is None).
-        """
-        # Initialize the parent class (RasterWeights)
-        super().__init__(raster, name, path, project_dir)
-        # Set the type of crop
-        self.wtype = crop
-        # Set the type of feed
-        self.feed = feed
-        # Initialize the cache
-        self.cache = initialize_cache(self)
-
-    def cdict(self):
-        """
-        Returns a dictionary with the attributes of the CropWeights object.
-
-        Returns
-        -------
-        dict
-            A dictionary with the attributes of the CropWeights object.
-        """
-        gdict = {
-            "name": self.name,
-            "path": self.path,
-            "feed": self.feed,
-            "crop": self.wtype,
-            "raster": pformat(self.raster),
-        }
-        return gdict
+    @property
+    def feed(self):
+        """The feed regime; an alias for the cache identifier."""
+        return self.cache_identifier
 
 
-def crop_weights_from_path(
-    path,
-    crop="corn",
-    grid=None,
-    write=False,
-    name=None,
-    feed=None,
-    project_dir=None,
-    crs=None,
-):
+def crop_weights_from_path(path, crop="corn", name=None, feed=None,
+                           project_dir=None, crs=None, var="layer",
+                           preprocess=None, **kwargs):
     """
-    Creates a CropWeights object from a raster file.
+    Create CropWeights from a cropland raster.
+
+    A convenience wrapper: ``crop`` selects along the raster's ``crop``
+    coordinate and ``feed`` becomes the cache discriminator. The equivalent
+    generic call is::
+
+        secondary_weights_from_path(path, var="layer", sel={"crop": crop},
+                                    wtype=crop, cache_identifier=feed)
 
     Parameters
     ----------
     path : str
-        The path to the raster file.
+        Path to the cropland raster (.zarr, .nc or .tif).
     crop : str, optional
-        The type of crop (default is "corn").
-    grid : xarray.DataArray, optional
-        The grid to use for reformatting the raster (default is None).
-    write : bool, optional
-        A flag indicating if the weights should be written to a file (default is False).
+        Crop to select along the ``crop`` coordinate (default "corn").
     name : str, optional
-        The name of the CropWeights object (default is None).
+        A label for these weights.
     feed : str, optional
-        The type of feed (default is None).
+        Feed regime (rainfed / irrigated / total). Kept out of the raster but
+        folded into the cache key.
     project_dir : str, optional
-        The project directory (default is None).
+        Project directory; enables the cache.
     crs : str, optional
-        The coordinate reference system to use (default is None).
+        Write this CRS onto the raster.
+    var : str, optional
+        Data variable holding the cropland layer (default "layer"). Pass None
+        for a file that is already a bare DataArray.
 
     Returns
     -------
     CropWeights
-        The created CropWeights object.
     """
-    # Open the raster file as an xarray DataArray
-    da = open_crop_raster(path, crop)
-    # Write the coordinate reference system if provided
-    if crs is not None:
-        da = da.rio.write_crs(crs)
-    # Create a CropWeights object using the raster data array and other parameters
-    weights = CropWeights(da, crop, name, feed, path, project_dir)
-
-    return weights
-
-
-def open_crop_raster(path, crop, preprocess=None, **kwargs):
-    """
-    Opens a crop raster file and returns it as an xarray DataArray.
-
-    Parameters
-    ----------
-    path : str
-        The path to the raster file.
-    crop : str
-        The type of crop.
-    preprocess : callable, optional
-        A function to preprocess the raster data (default is None).
-
-    Returns
-    -------
-    xarray.DataArray
-        The opened crop raster.
-    """
-    # Separate file path from file extension
-    file, ex = os.path.splitext(path)
-
-    if ex == ".tif":
-        # Open the raster file as a GeoTIFF
-        da = rioxarray.open_rasterio(path, chunks=True, lock=False, **kwargs)
-
-        if preprocess is not None:
-            # Apply the preprocessing function if provided
-            da = preprocess(da, crop)
-        else:
-            # Format the raster data array for cropland GeoTIFF
-            da = format_cropland_tif_da(da, crop)
-
-    elif ex == ".zarr":
-        # Open the raster file as a Zarr dataset
-        da = xr.open_zarr(path, **kwargs)
-        # Select the specified crop
-        da = da.layer.sel(crop=crop)
-    elif ex == ".nc":
-        # Open the raster file as a NetCDF dataset
-        da = xr.open_dataset(path, **kwargs)
-        # Select the specified crop
-        da = da.layer.sel(crop=crop)
-    else:
-        # Raise an error if the file extension is not supported
-        raise NotImplementedError
-
-    return da
-
-
-def format_cropland_tif_da(da, crop):
-    """
-    Formats a cropland GeoTIFF data array for a specified crop.
-
-    Parameters
-    ----------
-    da : xarray.DataArray
-        The data array to format.
-    crop : str
-        The type of crop.
-
-    Returns
-    -------
-    xarray.Dataset
-        The formatted data array as a dataset.
-    """
-    return (
-        da.isin([cropland_id(crop)]) # Check if the data array contains the specified crop ID
-        .drop("band") # Drop the "band" dimension
-        .squeeze()  # Remove singleton dimensions
-        .expand_dims("crop") # Add the "crop" dimension
-        .assign_coords(crop=("crop", np.array(self.crop_dict[num]).reshape(1))) # Assign the crop name as a coordinate
-        .to_dataset(name="layer") # Convert to a dataset with the variable name "layer"
+    w = secondary_weights_from_path(
+        path, name=name, project_dir=project_dir, crs=crs, wtype=crop,
+        var=var, sel={"crop": crop}, cache_identifier=feed,
+        preprocess=preprocess, **kwargs,
     )
-
-
-def cropland_id(crop):
-    """
-    Returns the crop ID for a specified crop.
-
-    Parameters
-    ----------
-    crop : str
-        The type of crop.
-
-    Returns
-    -------
-    int
-        The crop ID.
-    """
-    # Dictionary mapping crop names to IDs
-    crop_dict = {
-        "corn": 1,
-        "cotton": 2,
-        "rice": 3,
-        "sorghum": 4,
-        "soybeans": 5,
-        "spring wheat": 23,
-    }
-    return crop_dict[crop]
+    w.__class__ = CropWeights
+    return w

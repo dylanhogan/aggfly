@@ -75,9 +75,40 @@ weights = af.weights_from_objects(
 
 | Function | Use for |
 |---|---|
+| `af.secondary_weights_from_path(path, ...)` | Any raster. The general loader. |
 | `af.pop_weights_from_path(path)` | Population rasters (e.g. LandScan). |
 | `af.crop_weights_from_path(path, crop=..., feed=...)` | Cropland rasters; `crop` selects the crop, `feed` the regime (e.g. rainfed). |
-| `af.secondary_weights_from_path(path)` | Any other generic raster. |
+
+All three read **`.tif`, `.zarr` and `.nc`**, and the latter two are thin
+wrappers over the first.
+
+### Selecting part of a raster
+
+A secondary raster often holds more than one layer. `var` picks a data variable
+and `sel` picks along a coordinate:
+
+```python
+# one crop out of a multi-crop cropland store
+af.secondary_weights_from_path("cropland.zarr", var="layer", sel={"crop": "corn"})
+
+# one band of a multi-band GeoTIFF
+af.secondary_weights_from_path("landcover.tif", sel={"band": 3})
+```
+
+This is what makes cropland weights work, and it is not crop-specific — any
+selectable coordinate (a scenario, a year, a band) can be used.
+
+### Distinguishing variants in the cache
+
+`cache_identifier` is an extra discriminator folded into the cache key. `path`
+and the raster itself already feed that key, so you only need it when what
+separates two variants is *not* visible in either — for instance the same file
+read with two different `preprocess` functions. `crop_weights_from_path` uses it
+to keep feed regimes apart.
+
+> **CRS note.** A CRS does not survive a Zarr round trip, so a `.zarr` secondary
+> raster often needs an explicit `crs="WGS84"`. Weight construction raises a
+> clear error rather than guessing.
 
 ## Arguments
 

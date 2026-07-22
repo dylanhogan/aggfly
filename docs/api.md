@@ -137,10 +137,33 @@ Build a `GridWeights` object. Call `.calculate_weights()` to populate `.weights`
 ### Secondary-weight loaders
 
 ```python
-af.pop_weights_from_path(path, grid=None, name=None, feed=None, project_dir=None, crs=None)
-af.crop_weights_from_path(path, crop="corn", grid=None, ...)
-af.secondary_weights_from_path(path, name=None, project_dir=None, crs=None, wtype="raster")
+af.secondary_weights_from_path(path, name=None, project_dir=None, crs=None,
+                               wtype="raster", var=None, sel=None,
+                               cache_identifier=None, preprocess=None, **kwargs)
+af.pop_weights_from_path(path, name=None, project_dir=None, crs=None, ...)
+af.crop_weights_from_path(path, crop="corn", name=None, feed=None,
+                          project_dir=None, crs=None, var="layer", ...)
 ```
+
+`secondary_weights_from_path` is the general one; the other two are thin wrappers
+over it. All three read **`.tif`, `.zarr` and `.nc`**.
+
+| Argument | Purpose |
+|---|---|
+| `var` | Data variable to take from a multi-variable file, e.g. `"layer"` for a cropland store. |
+| `sel` | Coordinate selection applied after `var`, e.g. `{"crop": "corn"}` or `{"band": 1}`. |
+| `cache_identifier` | Extra discriminator folded into the cache key. Use it when what distinguishes two variants is *not* already in `path` or the raster — `path` and the raster already feed the key. |
+| `crs` | Write a CRS onto the raster. Needed when the source has none — note a CRS does not survive a Zarr round trip. |
+
+`crop_weights_from_path(path, crop="corn", feed="rainfed")` is exactly:
+
+```python
+af.secondary_weights_from_path(path, var="layer", sel={"crop": "corn"},
+                               wtype="corn", cache_identifier="rainfed")
+```
+
+so any raster with a selectable coordinate can be used as a secondary weight —
+not just cropland.
 
 ### `GridWeights`, `SecondaryWeights`, `PopWeights`, `CropWeights`
 

@@ -126,7 +126,8 @@ class RasterWeights:
         return gdict
     
 class SecondaryWeights(RasterWeights):
-    def __init__(self, raster, name=None, path=None, project_dir=None, wtype="raster"):
+    def __init__(self, raster, name=None, path=None, project_dir=None,
+                 wtype="raster", cache_identifier=None):
         """
         Initialize a SecondaryWeights object.
 
@@ -142,15 +143,30 @@ class SecondaryWeights(RasterWeights):
             The project directory (default is None).
         wtype : str, optional
             The weight type (default is "raster").
+        cache_identifier : hashable, optional
+            An extra discriminator folded into the cache key. Use it when two
+            variants of the same weights would otherwise collide — that is, when
+            what distinguishes them is *not* already visible in ``path`` or in
+            the raster itself (which both already feed the key). A `preprocess`
+            applied before construction is the usual case.
         """
         super().__init__(raster, name, path, project_dir) # Initialize the base class
         if self.raster.rio.crs is None:
             raise ValueError("Raster does not have a CRS assigned to it. Specify a CRS, e.g., `crs='WGS84'`.")
         self.wtype = wtype # Set the weight type
+        self.cache_identifier = cache_identifier
         self.cache = initialize_cache(self) # Initialize cache for the SecondaryWeights object
-        
+
+    def cdict(self):
+        """Cache key: the base fields plus the extra discriminator."""
+        gdict = super().cdict()
+        gdict["cache_identifier"] = self.cache_identifier
+        return gdict
+
+
 def secondary_weights_from_path(
-    path, name=None, project_dir=None, crs=None, wtype="raster"
+    path, name=None, project_dir=None, crs=None, wtype="raster",
+    var=None, sel=None, cache_identifier=None, preprocess=None, **kwargs
 ):
     """
     Create SecondaryWeights from a file path.
@@ -173,50 +189,57 @@ def secondary_weights_from_path(
     SecondaryWeights
         The created SecondaryWeights object.
     """
-    da = open_raster(path) # Open the raster file
-    
+    da = open_raster(path, var=var, sel=sel, preprocess=preprocess, **kwargs)
     if crs is not None:
         da = da.rio.write_crs(crs) # Write CRS to the raster if provided
-    
-    weights = SecondaryWeights(da, name, path, project_dir, wtype) # Create SecondaryWeights object
+    return SecondaryWeights(
+        da, name=name, path=path, project_dir=project_dir,
+        wtype=wtype, cache_identifier=cache_identifier,
+    )
 
-    return weights
-
     
-def open_raster(path, preprocess=None, **kwargs):
+def open_raster(path, var=None, sel=None, preprocess=None, **kwargs):
     """
-    Open a raster file.
+    Open a raster as an xarray object, optionally selecting part of it.
 
     Parameters
     ----------
     path : str
-        The path to the raster file.
+        Path to a GeoTIFF, Zarr store, or NetCDF file.
+    var : str, optional
+        Data variable to take from a multi-variable file, e.g. ``"layer"`` for a
+        cropland store. Ignored for a plain single-band GeoTIFF.
+    sel : dict, optional
+        Coordinate selection applied after ``var``, passed to ``.sel()`` —
+        e.g. ``{"crop": "corn"}`` to pick one crop out of a cropland store, or
+        ``{"band": 1}`` to pick a band. This replaces the crop-specific loader:
+        any coordinate can be selected, not just a crop.
     preprocess : callable, optional
-        A function to preprocess the data when loaded (default is None).
+        Applied to the opened object before ``var``/``sel``.
 
     Returns
     -------
-    xarray.DataArray
-        The opened raster data array.
+    xarray.DataArray or xarray.Dataset
     """
-    # Separate file path from file extension
-    file, ex = os.path.splitext(path)
+    ext = os.path.splitext(str(path).rstrip("/"))[1].lower()
 
-    if ex == ".tif":
-        da = rioxarray.open_rasterio(
-            path, chunks=True, lock=False, masked=True, **kwargs
+    if ext in (".tif", ".tiff"):
+        da = rioxarray.open_rasterio(path, chunks=True, lock=False, masked=True, **kwargs)
+    elif ext == ".zarr":
+        da = xr.open_zarr(path, **kwargs)
+    elif ext in (".nc", ".nc4", ".netcdf", ".cdf"):
+        da = xr.open_dataset(path, **kwargs)
+    else:
+        raise NotImplementedError(
+            f"Unsupported raster format {ext!r} for {path!r}. "
+            "Supported: .tif/.tiff, .zarr, .nc/.nc4."
         )
 
-        if preprocess is not None:
-            da = preprocess(da)  # Apply preprocessing if provided
+    if preprocess is not None:
+        da = preprocess(da)
+    if var is not None:
+        da = da[var]
+    if sel:
+        da = da.sel(**sel)
 
-    # elif ex =='.zarr':
-    #     da = xr.open_zarr(path,  **kwargs)
-    #     da = da.layer.sel(crop=crop)
-    # elif ex == '.nc':
-    #     da = xr.open_dataset(path,  **kwargs)
-    #     da = da.layer.sel(crop=crop)
-    else:
-        raise NotImplementedError
-
-    return da  # Return the opened raster data array
+    return da
