@@ -132,68 +132,6 @@ def crop_weights_from_path(
     return weights
 
 
-def crop_weights_from_name(
-    name="cropland",
-    crop="corn",
-    grid=None,
-    feed=None,
-    write=False,
-    project_dir=None,
-    crs=None,
-):
-    """
-    Creates CropWeights object based on the given name and other parameters.
-
-    Parameters
-    ----------
-    name : str, optional
-        The name of the crop weights source (default is "cropland").
-    crop : str, optional
-        The type of crop (default is "corn").
-    grid : xarray.DataArray, optional
-        The grid to use for reformatting the raster (default is None).
-    feed : str, optional
-        The type of feed (default is None).
-    write : bool, optional
-        A flag indicating if the weights should be written to a file (default is False).
-    project_dir : str, optional
-        The project directory (default is None).
-    crs : str, optional
-        The coordinate reference system to use (default is None).
-
-    Returns
-    -------
-    CropWeights
-        The created CropWeights object.
-    """
-    if name == "cropland":
-        # Specify the path to the cropland raster file
-        # path = "/home3/dth2133/data/cropland/2021_crop_mask.zarr"
-        path = "/home3/dth2133/data/cropland/avg_2008-2021_crop_mask.zarr"
-        # preprocess =
-        # Set the coordinate reference system
-        crs = "EPSG:5070"
-    elif name == "GAEZ":
-        # Specify the path to the GAEZ raster file based on the feed
-        path = f"/home3/dth2133/data/GAEZ/GAEZ_2015_all-crops_{feed}.nc"
-
-    else:
-        # Raise an error if the name is not supported
-        raise NotImplementedError
-        
-    # Create and return the CropWeights object using the specified parameters
-    return crop_weights_from_path(
-        path,
-        crop=crop,
-        grid=grid,
-        write=write,
-        name=name,
-        feed=feed,
-        project_dir=project_dir,
-        crs=crs,
-    )
-
-
 def open_crop_raster(path, crop, preprocess=None, **kwargs):
     """
     Opens a crop raster file and returns it as an xarray DataArray.

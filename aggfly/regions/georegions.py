@@ -1,6 +1,7 @@
 # This script defines the GeoRegions class for representing and manipulating geographical regions using shapefiles.
 # It includes methods for initializing the GeoRegions object, selecting and dropping regions, generating polygon arrays,
-# and plotting region boundaries. Additionally, it provides utility functions for loading GeoRegions from paths or names.
+# and plotting region boundaries. Additionally, it provides utility functions for loading GeoRegions from a path or an
+# in-memory GeoDataFrame, and for inspecting a vector file before loading it.
 
 import os
 from typing import Dict, List, Optional, Union
@@ -10,7 +11,6 @@ import dask.array  # used by poly_array(datatype="dask")
 from copy import deepcopy
 import warnings
 
-from .shp_utils import *
 
 # Weird bug in pyproj or geopandas that results in inf values the first time
 # a shapefile is loaded.. only for certain installations of PROJ
@@ -241,39 +241,6 @@ def georegions_from_path(
     shp = gpd.read_file(path)
     # Create and return a GeoRegions object using the shapefile, region identifier, and optional region list
     return GeoRegions(shp, regionid, region_list)
-
-
-def georegions_from_name(name="usa", region_list=None):
-    """
-    Returns a GeoRegions object based on the given name and region list.
-
-    Parameters
-    ----------
-    name : str
-        The name of the GeoRegions object to create. Valid values are "usa", "counties", and "global".
-    region_list : list of str, optional
-        A list of region names to include in the GeoRegions object. If None, all regions are included.
-
-    Returns
-    -------
-    GeoRegions
-        A GeoRegions object based on the given name and region list.
-
-    Raises
-    -------
-    NotImplementedError
-        If an invalid name is provided.
-    """
-    # Determine the GeoRegions object to create based on the given name
-    if name == "usa":
-        return GeoRegions(open_usa_shp(), "state", region_list, name=name)
-    elif name == "counties":
-        return GeoRegions(open_counties_shp(), "fips", region_list, name=name)
-    elif name == "global":
-        return GeoRegions(open_global_shp(), "OBJECTID", region_list, name=name)
-    else:
-        # Raise an error if the name is not supported
-        raise NotImplementedError
 
 
 def georegions_from_gdf(
