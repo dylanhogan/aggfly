@@ -3,6 +3,7 @@
 # and weighting functions work correctly. 
 
 import os
+import warnings
 import pytest
 
 import xarray as xr
@@ -1317,3 +1318,91 @@ def test_open_raster_supports_tif_zarr_and_netcdf(tmp_path):
 
     with pytest.raises(NotImplementedError, match="Unsupported raster format"):
         open_raster(str(tmp_path / "x.bogus"))
+
+
+# ---------------------------------------------------------------------------
+# Missing secondary-raster values
+#
+# A cell can lack a raster value two ways: it falls outside the raster's extent
+# (the left merge yields NaN), or its whole footprint is nodata. The NaN used to
+# survive into `weight` -- groupby().sum() skips NaN, so total_weight looked
+# finite and the zero_weight guard never fired -- and then poisoned the spatial
+# sum, silently dropping the entire region from the panel.
+# ---------------------------------------------------------------------------
+
+def _region_and_dataset():
+    """One region over a 4x4 degree grid."""
+    lat = np.arange(0, 4.0) + 0.5
+    lon = np.arange(0, 4.0) + 0.5
+    time = pd.date_range("2000-01-01", periods=3)
+    ds = af.Dataset(
+        xr.DataArray(np.ones((3, 4, 4)), dims=["time", "latitude", "longitude"],
+                     coords={"time": time, "latitude": lat, "longitude": lon}),
+        lon_is_360=False,
+    )
+    gdf = gpd.GeoDataFrame({"geoid": ["r1"], "geometry": [shapely.box(0, 0, 4, 4)]},
+                           crs="WGS84")
+    return ds, af.GeoRegions(gdf, regionid="geoid")
+
+
+def _partial_pop_raster(covered_rows):
+    """Population raster covering only the first `covered_rows` rows of the grid."""
+    y = np.arange(0, 4.0) + 0.5
+    x = np.arange(0, 4.0) + 0.5
+    vals = np.ones((1, 4, 4))
+    vals[0, covered_rows:, :] = np.nan          # the rest is nodata
+    return af.SecondaryWeights(
+        xr.DataArray(vals, dims=["band", "y", "x"],
+                     coords={"band": [1], "y": y, "x": x}).rio.write_crs("WGS84")
+    )
+
+
+def test_missing_raster_values_do_not_drop_the_region():
+    ds, georegions = _region_and_dataset()
+    w = af.weights_from_objects(ds, georegions,
+                                secondary_weights=_partial_pop_raster(2))
+    with pytest.warns(UserWarning, match="no secondary raster value"):
+        w.calculate_weights()
+
+    # no NaN survives into the weights ...
+    assert not w.weights.weight.isna().any()
+    # ... and the region still produces a panel
+    df = af.aggregate_dataset(dataset=ds, weights=w,
+                              tavg=[("aggregate", {"calc": "mean", "groupby": "date"})])
+    assert len(df) == 3
+    assert df.tavg.notna().all()
+
+
+def test_cells_without_raster_values_get_zero_weight():
+    ds, georegions = _region_and_dataset()
+    w = af.weights_from_objects(ds, georegions,
+                                secondary_weights=_partial_pop_raster(2))
+    with pytest.warns(UserWarning):
+        w.calculate_weights()
+    # the uncovered half contributes nothing; the covered half carries it all
+    assert np.isclose(w.weights.weight.sum(), w.weights.weight[w.weights.weight > 0].sum())
+    assert (w.weights.weight >= 0).all()
+
+
+def test_region_with_no_raster_values_falls_back_to_area_weights():
+    """All-nodata must hit the zero_weight fallback, not produce NaN."""
+    ds, georegions = _region_and_dataset()
+    w = af.weights_from_objects(ds, georegions,
+                                secondary_weights=_partial_pop_raster(0))
+    with pytest.warns(UserWarning):
+        w.calculate_weights()
+    assert not w.weights.weight.isna().any()
+    # default_to_area_weights is True, so weight == area_weight
+    assert np.allclose(w.weights.weight, w.weights.area_weight)
+
+
+def test_clean_secondary_raster_is_unaffected():
+    """No missing values -> no warning, and weights are the plain product."""
+    ds, georegions = _region_and_dataset()
+    w = af.weights_from_objects(ds, georegions,
+                                secondary_weights=_partial_pop_raster(4))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")        # any warning here is a failure
+        w.calculate_weights()
+    assert not w.weights.weight.isna().any()
+    assert (w.weights.weight > 0).all()
