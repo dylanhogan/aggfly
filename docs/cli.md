@@ -11,18 +11,21 @@ uv sync
 uv run aggfly --help
 ```
 
-## The four commands
+## The five commands
 
 | Command | Purpose |
 |---|---|
 | `aggfly info PATH` | Inspect a dataset (dims, calendar, longitude convention, time span) to help you write a config. |
+| `aggfly regions PATH` | Inspect a shapefile (fields, CRS, bounds) to work out its `regionid`. |
 | `aggfly validate CONFIG` | Statically check a config — no data is read. Prints a normalized plan. |
 | `aggfly weights CONFIG` | Build and cache the spatial weights only. |
 | `aggfly run CONFIG` | Run the full pipeline and write the output panel. |
 
-The natural authoring loop is **`info` → `validate` → `run`**:
+The natural authoring loop is **inspect → `validate` → `run`**, with one
+inspection command per input:
 
 ```bash
+aggfly regions counties.shp --uniqueness # discover the regionid column
 aggfly info era5_2000.zarr --var t2m     # discover coord names, units, calendar
 aggfly validate config.yaml              # catch config mistakes with no data read
 aggfly run config.yaml                   # aggregate → panel
@@ -40,6 +43,39 @@ longitude convention (`lon_is_360`), the calendar (flagging non-standard
 `cftime` calendars like `360_day`), the time span, and chunking. `PATH` may be a
 local file/Zarr or a remote URL; pass credentials for object stores via
 `--storage-options`, e.g. `--storage-options '{"token": "anon"}'` for public GCS.
+
+## `aggfly regions`
+
+```bash
+aggfly regions PATH [-n ROWS] [--uniqueness] [-v]
+```
+
+The counterpart to `info` for the regions side of a config. Reports the fields
+and their dtypes, the CRS, the feature count, the bounds and a few rows — enough
+to fill in `regions.regionid`. Metadata comes from the file header, so nothing is
+loaded; only `-n` rows are read (`-n 0` skips the preview).
+
+`--uniqueness` additionally reports which columns are unique across *every*
+feature, which is what a region id has to be. That reads all attributes but no
+geometry — far cheaper than a full read, though not free on a large file.
+
+```
+$ aggfly regions counties.shp --uniqueness
+counties.shp
+  driver     : ESRI Shapefile  layer=counties
+  geometry   : Polygon  features=3221
+  crs        : EPSG:4326
+  bounds     : lon -179.1435 .. 179.7785 | lat 17.8814 .. 71.3526
+  fields     : 4
+      GEOID                    object
+      NAME                     object
+      ...
+  unique across all 3221 features (regionid candidates):
+      GEOID
+```
+
+It also flags a missing CRS (which `GeoRegions` requires) and longitudes on a
+0–360 rather than −180–180 frame.
 
 ## `aggfly validate`
 

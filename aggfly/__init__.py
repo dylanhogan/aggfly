@@ -20,7 +20,13 @@ from .weights import (
     crop_weights_from_path,
     secondary_weights_from_path
 )
-from .regions import GeoRegions, georegions_from_path, georegions_from_name
+from .regions import (
+    GeoRegions,
+    georegions_from_path,
+    georegions_from_name,
+    georegions_from_gdf,
+    shapefile_info,
+)
 
 # The test fixtures are deliberately NOT re-exported here. `aggfly.tests`
 # imports pytest at module load, so importing them made pytest a hard runtime

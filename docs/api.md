@@ -20,6 +20,46 @@ af.georegions_from_path(path, regionid, region_list=None) -> GeoRegions
 Load target regions from a shapefile. `regionid` names the column holding the
 region identifier; `region_list` optionally restricts to a subset.
 
+### `georegions_from_gdf`
+
+```python
+af.georegions_from_gdf(gdf, regionid, region_list=None, name=None, crs="WGS84") -> GeoRegions
+```
+
+Build regions from an in-memory GeoDataFrame — for regions you have already
+loaded, filtered, dissolved or constructed in code, with no round trip through a
+file. Equivalent to `georegions_from_path` in every other respect.
+
+Raises a clear error if `gdf` is not a GeoDataFrame, is empty, has no CRS, or
+does not contain `regionid` (the message lists the columns it does have). Warns
+if `regionid` has duplicate or missing values, since either silently corrupts the
+output panel. The frame is copied, so later operations never reach back into
+yours.
+
+```python
+counties = gpd.read_file("counties.shp")
+west = counties[counties.STATE.isin(["CA", "OR", "WA"])]
+georegions = af.georegions_from_gdf(west, regionid="GEOID")
+```
+
+### `shapefile_info`
+
+```python
+af.shapefile_info(path, n=5, uniqueness=False) -> dict
+```
+
+Print a summary of a vector file **without loading it** — the usual way to work
+out what to pass as `regionid`. Metadata (fields and dtypes, CRS, feature count,
+bounds, geometry type) comes from the file header at no I/O cost; only `n` rows
+are read for the preview.
+
+`uniqueness=True` additionally reports which columns are unique across *every*
+feature — the property that actually qualifies a column as a region id. That
+reads all attributes but no geometry, so it is far cheaper than a full read.
+
+Also flags two things that will otherwise bite later: a missing CRS, and
+longitudes on a 0–360 rather than −180–180 frame.
+
 ### `georegions_from_name`
 
 ```python
