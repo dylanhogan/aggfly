@@ -163,6 +163,7 @@ dataset:
 # --- 3. weights --------------------------------------------------------
 weights:
   project_dir: ./proj           # enables the weight cache
+  zero_weight: nan              # nan | area | drop — regions with no secondary weight
   secondary:                    # optional; omit for area-only weights
     type: pop                   # pop | crop | generic
     path: landscan-global-2016.tif
@@ -231,6 +232,19 @@ When true (default), the raster is clipped to the regions' bounding extent as it
 loads — a read-reduction that **never changes results** (weights select the
 relevant cells regardless). Disable it for regions that wrap the antimeridian in
 the 0–360 convention, where the extent clip is ill-defined.
+
+### `zero_weight`
+
+What to do with a region whose secondary weights sum to zero — a county with no
+population, or none of the crop in question.
+
+| Value | Behaviour |
+|---|---|
+| `nan` *(default)* | Keep the region and report NaN for it. The quantity is genuinely undefined there, and NaN says so. |
+| `area` | Fall back to area weights for that region. Warns — those rows answer a different question from the rest of the panel. |
+| `drop` | Omit the region entirely. Warns — the panel then has fewer regions than the shapefile. |
+
+Only meaningful with `weights.secondary`; area-only weights are never zero.
 
 ### Reading from object storage
 

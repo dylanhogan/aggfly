@@ -81,6 +81,7 @@ def build_weights(config, dataset, georegions):
         georegions,
         secondary_weights=secondary,
         project_dir=config.project_dir,
+        zero_weight=config.zero_weight,
     )
     w.calculate_weights()
     return w

@@ -145,10 +145,45 @@ to count as empty.
 
 A cell with **no** usable value at all — because it lies outside the raster's
 extent, or because its whole footprint is nodata — is given **zero weight**, and
-a warning reports how many cells that affected. If *no* cell in a region has a
-value, the region falls back to area weights (when `default_to_area_weights` is
-set, the default). Check that warning if a run reports more missing cells than
-you expect: it usually means the secondary raster does not cover your regions.
+a warning reports how many cells that affected. Check that warning if a run
+reports more missing cells than you expect: it usually means the secondary raster
+does not cover your regions.
+
+## Regions with no secondary weight
+
+Some regions legitimately have none of the weighting quantity: a county with no
+population, or no hectares of the crop in question. With crop weights this is
+often the *majority* of regions.
+
+`zero_weight` decides what happens to them:
+
+| Value | Behaviour |
+|---|---|
+| `"nan"` *(default)* | Keep the region and report **NaN**. |
+| `"area"` | Fall back to **area weights** for that region. Warns. |
+| `"drop"` | **Omit** the region entirely. Warns. |
+
+```python
+weights = af.weights_from_objects(
+    dataset, georegions,
+    secondary_weights=secondary_weights,
+    zero_weight="area",        # or "drop"
+)
+```
+
+`"nan"` is the default because it is the only option that is both honest and
+visible. `"area"` silently mixes two estimands in one column — those rows answer
+"what was the temperature over this land?" while the rest answer "what did the
+average person experience?" — and `"drop"` leaves the panel with fewer regions
+than the shapefile and nothing to say which are missing. Both therefore warn and
+name the regions affected.
+
+If you want the old behaviour, pass `zero_weight="area"` explicitly. The former
+`default_to_area_weights` argument still works as a deprecated alias
+(`True` → `"area"`, `False` → `"drop"`).
+
+> Area-only weights are never zero, so this setting only matters when a
+> secondary raster is supplied.
 
 ## Notes and constraints
 

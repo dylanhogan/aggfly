@@ -25,6 +25,9 @@ from ..cache import *
 from ..aggregate import is_distributed, shutdown_dask_client, start_dask_client
 
 
+ZERO_WEIGHT_POLICIES = {"nan", "area", "drop"}
+
+
 class GridWeights:
     def __init__(
         self,
@@ -34,7 +37,8 @@ class GridWeights:
         chunks: int = 30,
         project_dir: Optional[str] = None,
         simplify: Optional[Union[float, int]] = None,
-        default_to_area_weights: bool = True,
+        zero_weight: str = "nan",
+        default_to_area_weights: Optional[bool] = None,
         cosine_area: Optional[bool] = None,
         verbose: bool = True,
     ):
@@ -55,8 +59,24 @@ class GridWeights:
             The project directory (default is None).
         simplify : float or int, optional
             The simplification factor to use (default is None).
+        zero_weight : {"nan", "area", "drop"}, optional
+            What to do with a region whose secondary weights sum to zero — a
+            county with no population, or no hectares of the crop in question.
+
+            - ``"nan"`` (default) keeps the region and reports NaN for it. The
+              quantity really is undefined there ("the temperature experienced
+              by the average person" needs a person), and NaN says so in the
+              output instead of hiding it.
+            - ``"area"`` falls back to area weights for that region. Note this
+              silently mixes two estimands in one column: those rows answer a
+              different question from the rest.
+            - ``"drop"`` omits the region entirely, so the panel has fewer
+              regions than the shapefile with nothing to say which are missing.
+
+            Both non-default policies warn and name the regions affected.
         default_to_area_weights : bool, optional
-            Whether to default to area weights (default is True).
+            Deprecated alias for ``zero_weight``: True maps to ``"area"``,
+            False to ``"drop"``.
         cosine_area : bool, optional
             Whether to correct area weights for cell-area distortion by latitude
             (multiply by cos(latitude)).
@@ -87,7 +107,22 @@ class GridWeights:
         self.chunks = chunks
         self.project_dir = project_dir
         self.simplify = simplify
-        self.default_to_area_weights = default_to_area_weights
+
+        # Resolve the deprecated boolean onto the three-valued policy.
+        if default_to_area_weights is not None:
+            warnings.warn(
+                "default_to_area_weights is deprecated; use "
+                'zero_weight="area" (True) or zero_weight="drop" (False).',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            zero_weight = "area" if default_to_area_weights else "drop"
+        if zero_weight not in ZERO_WEIGHT_POLICIES:
+            raise ValueError(
+                f"zero_weight must be one of {sorted(ZERO_WEIGHT_POLICIES)}, "
+                f"got {zero_weight!r}"
+            )
+        self.zero_weight = zero_weight
         self.verbose = True
         self.weights = None
         self.nonzero_weight_coords = None
@@ -429,7 +464,7 @@ class GridWeights:
                 f"{n_missing} of {len(weights)} cell-region pairs had no secondary "
                 "raster value (outside its extent, or entirely nodata) and were "
                 "given zero weight. A region with no valid cells at all falls back "
-                "to area weights when default_to_area_weights is set.",
+                "to whatever the zero_weight policy specifies.",
                 stacklevel=2,
             )
 
@@ -453,12 +488,36 @@ class GridWeights:
             tw.raster_weight / tw.total_weight
         )
 
-        # Default to area weights for regions with zero raster weight if indicated
-        if self.default_to_area_weights:
-            tw.loc[tw.zero_weight, ["weight"]] = tw.area_weight
-        else:
+        # Regions whose secondary weights sum to zero: no population, or none of
+        # the crop in question. What to do about them is a modelling choice, so
+        # it is explicit and both non-default policies say what they did.
+        zero_regions = sorted(tw.loc[tw.zero_weight, "index_right"].unique())
+        if zero_regions:
+            shown = zero_regions[:5]
+            more = f" (+{len(zero_regions) - 5} more)" if len(zero_regions) > 5 else ""
+            if self.zero_weight == "area":
+                warnings.warn(
+                    f"{len(zero_regions)} region(s) have zero secondary weight and "
+                    f"fall back to AREA weights: {shown}{more}. Those rows answer a "
+                    "different question from the rest of the panel.",
+                    stacklevel=2,
+                )
+                tw.loc[tw.zero_weight, ["weight"]] = tw.area_weight
+            elif self.zero_weight == "drop":
+                warnings.warn(
+                    f"{len(zero_regions)} region(s) have zero secondary weight and "
+                    f"are DROPPED from the output: {shown}{more}.",
+                    stacklevel=2,
+                )
+                tw = tw.loc[np.logical_not(tw.zero_weight)]
+            else:  # "nan"
+                # Keep the rows at zero weight. The region then has a zero
+                # denominator in the spatial step, which already yields NaN --
+                # SpatialAggregator just has to not discard that row.
+                tw.loc[tw.zero_weight, ["weight"]] = 0.0
+        elif self.zero_weight == "drop":
             tw = tw.loc[np.logical_not(tw.zero_weight)]
-        
+
         return tw
 
     def cdict(self) -> Dict:
@@ -478,7 +537,7 @@ class GridWeights:
                 "geometry": str(self.georegions.shp.geometry),
             },
             "simplify": self.simplify,
-            "default_to_area_weights": self.default_to_area_weights,
+            "zero_weight": self.zero_weight,
             "cosine_area": self.cosine_area,
         }
 

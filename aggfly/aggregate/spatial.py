@@ -62,6 +62,11 @@ class SpatialAggregator:
         self.grid = weights.grid
         self.weights = weights.weights
         self.names = [names] if isinstance(names, str) else names
+        # Under zero_weight="nan" a region with no secondary weight is kept in
+        # the table at weight 0; its row must survive the dropna below as NaN
+        # rather than disappearing. Other NaN rows (a timestep where the climate
+        # data itself is missing) are still dropped, as before.
+        self.zero_weight = getattr(weights, "zero_weight", "area")
 
     def compute(self, npartitions: int = None) -> pd.DataFrame:
         """
@@ -136,7 +141,16 @@ class SpatialAggregator:
         )
         for nm in self.names:
             out[nm] = res[nm].reshape(-1)
-        out = out.dropna(subset=self.names).reset_index(drop=True)
+        if self.zero_weight == "nan":
+            # Regions carrying no weight at all are the ones whose NaN is
+            # meaningful ("undefined here"), so keep those rows and drop the
+            # rest of the NaNs as usual.
+            wsum = self.weights.groupby("index_right")["weight"].sum()
+            zero_regions = set(wsum.index[~(wsum > 0)])
+            keep = out["region_id"].isin(zero_regions) | out[self.names].notna().all(axis=1)
+            out = out.loc[keep].reset_index(drop=True)
+        else:
+            out = out.dropna(subset=self.names).reset_index(drop=True)
         return out
 
 

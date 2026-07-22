@@ -1384,16 +1384,26 @@ def test_cells_without_raster_values_get_zero_weight():
     assert (w.weights.weight >= 0).all()
 
 
-def test_region_with_no_raster_values_falls_back_to_area_weights():
-    """All-nodata must hit the zero_weight fallback, not produce NaN."""
+def test_region_with_no_raster_values_hits_the_zero_weight_policy():
+    """All-nodata must reach the zero_weight branch, never leaving a NaN weight."""
     ds, georegions = _region_and_dataset()
+
+    # default policy "nan": the region is kept at zero weight, so the panel
+    # reports NaN for it rather than silently switching estimand or vanishing
     w = af.weights_from_objects(ds, georegions,
                                 secondary_weights=_partial_pop_raster(0))
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="no secondary raster value"):
         w.calculate_weights()
-    assert not w.weights.weight.isna().any()
-    # default_to_area_weights is True, so weight == area_weight
-    assert np.allclose(w.weights.weight, w.weights.area_weight)
+    assert not w.weights.weight.isna().any()   # weights themselves stay finite
+    assert (w.weights.weight == 0).all()
+
+    # explicit "area" reproduces the old default_to_area_weights=True behaviour
+    w2 = af.weights_from_objects(ds, georegions,
+                                 secondary_weights=_partial_pop_raster(0),
+                                 zero_weight="area")
+    with pytest.warns(UserWarning):
+        w2.calculate_weights()
+    assert np.allclose(w2.weights.weight, w2.weights.area_weight)
 
 
 def test_clean_secondary_raster_is_unaffected():
@@ -1406,3 +1416,114 @@ def test_clean_secondary_raster_is_unaffected():
         w.calculate_weights()
     assert not w.weights.weight.isna().any()
     assert (w.weights.weight > 0).all()
+
+
+# ---------------------------------------------------------------------------
+# zero_weight policy
+#
+# A region whose secondary weights sum to zero -- no population, none of the
+# crop -- is a modelling question, not an implementation detail. "nan" is the
+# default because it is the only option that neither switches estimand silently
+# nor makes a region disappear.
+# ---------------------------------------------------------------------------
+
+def _two_regions_one_empty():
+    """Two regions side by side; the right one has zero population."""
+    lat = np.arange(0, 4.0) + 0.5
+    lon = np.arange(0, 4.0) + 0.5
+    ds = af.Dataset(
+        xr.DataArray(np.ones((2, 4, 4)), dims=["time", "latitude", "longitude"],
+                     coords={"time": pd.date_range("2000-01-01", periods=2),
+                             "latitude": lat, "longitude": lon}),
+        lon_is_360=False,
+    )
+    gdf = gpd.GeoDataFrame(
+        {"geoid": ["has_pop", "no_pop"],
+         "geometry": [shapely.box(0, 0, 2, 4), shapely.box(2, 0, 4, 4)]},
+        crs="WGS84")
+    vals = np.ones((1, 4, 4))
+    vals[0, :, 2:] = 0.0            # genuine zeros, not nodata
+    sw = af.SecondaryWeights(
+        xr.DataArray(vals, dims=["band", "y", "x"],
+                     coords={"band": [1], "y": lat, "x": lon}).rio.write_crs("WGS84"))
+    return ds, af.GeoRegions(gdf, regionid="geoid"), sw
+
+
+def _panel(ds, w):
+    return af.aggregate_dataset(
+        dataset=ds, weights=w,
+        tavg=[("aggregate", {"calc": "mean", "groupby": "date"})])
+
+
+def test_zero_weight_defaults_to_nan():
+    ds, gr, sw = _two_regions_one_empty()
+    w = af.weights_from_objects(ds, gr, secondary_weights=sw)
+    assert w.zero_weight == "nan"
+    w.calculate_weights()
+    df = _panel(ds, w)
+    # the region is present, and its value is NaN rather than a silent fallback
+    assert set(df.geoid) == {"has_pop", "no_pop"}
+    assert df.loc[df.geoid == "no_pop", "tavg"].isna().all()
+    assert df.loc[df.geoid == "has_pop", "tavg"].notna().all()
+
+
+def test_zero_weight_area_reproduces_the_old_behaviour():
+    ds, gr, sw = _two_regions_one_empty()
+    w = af.weights_from_objects(ds, gr, secondary_weights=sw, zero_weight="area")
+    with pytest.warns(UserWarning, match="fall back to AREA weights"):
+        w.calculate_weights()
+    df = _panel(ds, w)
+    assert set(df.geoid) == {"has_pop", "no_pop"}
+    assert df.loc[df.geoid == "no_pop", "tavg"].notna().all()
+
+
+def test_zero_weight_drop_removes_the_region():
+    ds, gr, sw = _two_regions_one_empty()
+    w = af.weights_from_objects(ds, gr, secondary_weights=sw, zero_weight="drop")
+    with pytest.warns(UserWarning, match="DROPPED"):
+        w.calculate_weights()
+    df = _panel(ds, w)
+    assert set(df.geoid) == {"has_pop"}
+
+
+def test_zero_weight_rejects_unknown_policy():
+    ds, gr, sw = _two_regions_one_empty()
+    with pytest.raises(ValueError, match="zero_weight must be one of"):
+        af.weights_from_objects(ds, gr, secondary_weights=sw, zero_weight="bogus")
+
+
+def test_default_to_area_weights_is_a_deprecated_alias():
+    ds, gr, sw = _two_regions_one_empty()
+    with pytest.warns(DeprecationWarning, match="default_to_area_weights is deprecated"):
+        w = af.weights_from_objects(ds, gr, secondary_weights=sw,
+                                    default_to_area_weights=True)
+    assert w.zero_weight == "area"
+    with pytest.warns(DeprecationWarning):
+        w2 = af.weights_from_objects(ds, gr, secondary_weights=sw,
+                                     default_to_area_weights=False)
+    assert w2.zero_weight == "drop"
+
+
+def test_nan_policy_still_drops_rows_with_missing_climate_data():
+    """Only zero-weight regions keep their NaN; ordinary NaN rows still go."""
+    lat = np.arange(0, 4.0) + 0.5
+    lon = np.arange(0, 4.0) + 0.5
+    arr = np.ones((2, 4, 4))
+    arr[1, :, :] = np.nan          # the whole second timestep is missing
+    ds = af.Dataset(
+        xr.DataArray(arr, dims=["time", "latitude", "longitude"],
+                     coords={"time": pd.date_range("2000-01-01", periods=2),
+                             "latitude": lat, "longitude": lon}),
+        lon_is_360=False,
+    )
+    _, gr, sw = _two_regions_one_empty()
+
+    w = af.weights_from_objects(ds, gr, secondary_weights=sw)
+    w.calculate_weights()
+    df = _panel(ds, w)
+
+    # the populated region loses its all-NaN timestep, exactly as before
+    assert len(df[df.geoid == "has_pop"]) == 1
+    # the empty region keeps both timesteps, reported as NaN
+    empty = df[df.geoid == "no_pop"]
+    assert len(empty) == 2 and empty.tavg.isna().all()
