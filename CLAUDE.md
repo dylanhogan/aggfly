@@ -25,7 +25,7 @@ Tests live in `aggfly/tests/test_aggregate.py`. The fixtures (`dataset_360`, `ge
 
 ### Releasing to PyPI
 
-Last release: **0.3.0**, 2026-07-28 (previous were 0.2.0 on 2026-07-21 and 0.1.5 on 2024-10-24). A PyPI version can never be re-uploaded, even after deletion — a mistake burns the number. Work through the checks before publishing.
+Last release: **0.4.0**, 2026-09-10 (previous were 0.3.0 on 2026-07-28, 0.2.0 on 2026-07-21, and 0.1.5 on 2024-10-24). A PyPI version can never be re-uploaded, even after deletion — a mistake burns the number. Work through the checks before publishing.
 
 **1. Decide the version.** Check what is actually on PyPI first; the repo has drifted behind before (`pyproject.toml` said 0.1.4 while PyPI had 0.1.5).
 
