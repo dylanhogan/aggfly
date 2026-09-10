@@ -185,7 +185,13 @@ def _validate_transform_step(loc, params, errors):
     kind = params.get("transform")
     has_exp = "exp" in params
     has_inter = "inter" in params
-    is_spline = kind == "spline" or "spline" in params
+    is_spline = kind == "spline"
+    if is_spline:
+        from ..dataset.splines import validate_spline
+        try:
+            validate_spline(**{k: v for k, v in params.items() if k != "transform"})
+        except (ValueError, TypeError) as exc:
+            errors.append(f"{loc}: {exc}")
     if not (has_exp or has_inter or is_spline):
         errors.append(
             f"{loc}: transform step needs one of 'exp' (power), 'inter', or "
@@ -201,7 +207,13 @@ def _multiplicity(steps):
     for step_type, params in steps:
         if step_type == "transform" and "exp" in params:
             exp = params["exp"]
-            n = len(exp) if isinstance(exp, list) else 1
+            n *= len(exp) if isinstance(exp, list) else 1
+        if step_type == "transform" and params.get("transform") == "spline":
+            from ..dataset.splines import spline_size
+            try:
+                n *= spline_size(**{k: v for k, v in params.items() if k != "transform"})
+            except (ValueError, TypeError):
+                pass  # Reported by transform validation.
         if step_type == "aggregate" and params.get("calc") in CALCS_NEEDING_DDARGS:
             dd = params.get("ddargs")
             # a list of triples (2-D) is a multi-dd fan-out

@@ -67,9 +67,23 @@ def transform_dataset(
         dataset = dataset.interact(kwargs["inter"])
         # Create a dictionary with the original key and the interacted dataset
         output_dict = {key: dataset}
-    elif "spline" in kwargs['transform']:
-        datasets = dataset.spline()
-        new_keys = [f"{key}_spline{x}" for x in [1,2]]
+    elif kwargs.get("transform") == "spline":
+        params = {k: v for k, v in kwargs.items() if k != "transform"}
+        # Keep historical names for the original parameter-free transform.
+        datasets = dataset.spline(**params)
+        if not params:
+            new_keys = [f"{key}_spline{x}" for x in [1, 2]]
+        else:
+            degree = params.get("degree", 1)
+            restricted = params.get("restricted", False)
+            basis = params.get("basis", "truncated_power")
+            if basis == "bspline":
+                labels = [f"bspline_{j + 1}" for j in range(len(datasets))]
+            else:
+                powers = [1] if restricted else range(1, degree + 1)
+                labels = [f"power_{p}" for p in powers]
+                labels += [f"term_{j + 1}" for j in range(len(datasets) - len(labels))]
+            new_keys = [f"{key}_{label}" for label in labels]
         output_dict = dict(zip(new_keys, datasets))
     else:
         # Raise an error if neither 'exp' nor 'inter' is provided

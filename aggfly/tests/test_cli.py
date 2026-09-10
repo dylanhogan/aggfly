@@ -752,3 +752,52 @@ def test_regions_command_missing_file_is_a_clean_error(tmp_path):
     assert res.exit_code != 0
     assert "Error:" in res.output
     assert "Traceback" not in res.output       # user error, not a bug
+
+
+@pytest.mark.parametrize('basis', ['truncated_power', 'bspline'])
+def test_spline_cli_run(tmp_path, basis):
+    import yaml
+    zpath, spath = _write_run_inputs(tmp_path)
+    out = str(tmp_path / 'spline.parquet')
+    raw = _run_config(zpath, spath, out)
+    params = {'transform': 'spline', 'degree': 3, 'restricted': True,
+              'basis': basis, 'knots': [0, 7.5, 12.5, 20]}
+    raw['aggregate']['variables']['tavg'][1][1] = params
+    path = tmp_path / 'config.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    runner = CliRunner()
+    assert runner.invoke(cli, ['validate', str(path)]).exit_code == 0
+    result = runner.invoke(cli, ['run', str(path)])
+    assert result.exit_code == 0, result.output
+    frame = pd.read_parquet(out)
+    expected = (['tavg_power_1', 'tavg_term_1', 'tavg_term_2'] if basis == 'truncated_power'
+                else ['tavg_bspline_1', 'tavg_bspline_2', 'tavg_bspline_3'])
+    assert all(name in frame for name in expected)
+    assert np.isfinite(frame[expected].to_numpy()).all()
+
+
+@pytest.mark.parametrize('overrides', [
+    {'degree': 5}, {'restricted': 'true'}, {'knots': [0, 0, 10]},
+    {'degree': 4, 'knots': [0, 10, 20]}, {'basis': 'bad'}, {'extra': 1},
+])
+def test_spline_cli_validation(overrides):
+    import copy
+    raw = copy.deepcopy(GOOD_CONFIG)
+    params = {'transform': 'spline', 'degree': 3, 'restricted': True,
+              'knots': [0, 7.5, 12.5, 20], **overrides}
+    raw['aggregate']['variables'] = {'s': [['transform', params]]}
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod.parse_config(raw)
+
+
+def test_spline_cli_multi_dd_conflict():
+    import copy
+    raw = copy.deepcopy(GOOD_CONFIG)
+    raw['aggregate']['variables'] = {'s': [
+        ['transform', {'transform': 'spline', 'degree': 3, 'restricted': True,
+                       'knots': [0, 7.5, 12.5, 20]}],
+        ['aggregate', {'calc': 'bins', 'groupby': 'year',
+                       'ddargs': [[0, 10, 0], [10, 20, 0]]}],
+    ]}
+    with pytest.raises(cfgmod.ConfigError):
+        cfgmod.parse_config(raw)

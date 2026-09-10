@@ -204,6 +204,11 @@ list of steps applied in order. A step is `[step_type, params]`:
   triples for `bins`).
 - **`transform`** — `{transform: power, exp: [1, 2]}` raises the variable to each
   power (outputs suffixed `_1`, `_2`, …). Also supports `inter` and `spline`.
+  For example, `{transform: spline, degree: 3, restricted: true,
+  basis: truncated_power, knots: [0, 7.5, 12.5, 20]}` reproduces stagg's spline
+  basis. `degree` accepts 1–4 and `basis` also accepts `bspline`.
+  See [daily temperature splines](guide/aggregation.md#daily-temperature-splines)
+  for boundary, naming, and intercept conventions.
 
 A single `bins`/multi-`dd` step (a list of triples) fans one variable into
 several outputs. You cannot combine that with a multi-output `transform` (e.g.

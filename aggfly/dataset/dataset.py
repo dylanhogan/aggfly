@@ -472,14 +472,28 @@ class Dataset():
             # Return the updated copy
             return slf
 
-    def spline(self) -> Optional["Dataset"]:
-        # Construct design matrix for linear spline
-        design_matrix = lambda x: (x > 20) * (x-20)
-        arr = self.da.map_blocks(design_matrix)
-        slf = self.deepcopy()
-        slf.update(arr)
-        return (self, slf)
-    
+    def spline(self, degree=1, knots=(20,), restricted=False,
+               basis="truncated_power"):
+        """Expand into spline Datasets; defaults preserve the original T/hinge basis.
+
+        Degree is 1..4. Restricted splines have linear tails, with continuity
+        through derivative degree-1. Knots are fixed, finite and increasing.
+        No intercept is returned. See docs/guide/aggregation.md for conventions.
+        """
+        from .splines import spline_arrays
+
+        labels, arrays = spline_arrays(self.da, degree, knots, restricted, basis)
+        results = []
+        for label, array in zip(labels, arrays):
+            result = self.deepcopy()
+            result.update(array)
+            result.history.append(
+                f"spline:{label}:degree={degree}:knots={list(knots)}:"
+                f"restricted={restricted}:basis={basis}"
+            )
+            results.append(result)
+        return tuple(results)
+
     def interact(
         self, inter: Union["Dataset", xr.DataArray], update: bool = False
     ) -> Optional["Dataset"]:
